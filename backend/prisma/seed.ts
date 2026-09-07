@@ -13,6 +13,8 @@
  */
 import { prisma } from '../src/lib/prisma.js'
 import { logger } from '../src/lib/logger.js'
+import { activatePolicyVersion } from '../src/risk/policy.js'
+import { RESERVE_WEIGHT } from '../src/risk/scoring.js'
 
 /**
  * SUGANTHAN — Phase 12.1.
@@ -77,6 +79,67 @@ const DEPLOYMENTS = [
   },
 ] as const
 
+/**
+ * Phase 8 seed weights.
+ *
+ * A CONFIGURABLE DEMO POLICY, NOT A VALIDATED MODEL. These numbers were chosen
+ * to be reasonable and explainable, not fitted against labelled Sybil data.
+ * See docs/RISK-MODEL.md. Say this out loud in the pitch — claiming a tuned
+ * model would be the one dishonest thing in an otherwise auditable system.
+ *
+ * RESERVE is unallocated headroom held as a real row so the table genuinely
+ * sums to 1.0 and validation is honest rather than special-cased. Its value is
+ * always 0, so the maximum achievable score is 0.85.
+ */
+const SEED_WEIGHTS = [
+  { feature: 'FUNDING_CORRELATION', weight: 0.25 },
+  { feature: 'TIMING_CORRELATION', weight: 0.15 },
+  { feature: 'WALLET_AGE_SIMILARITY', weight: 0.15 },
+  { feature: 'SHARED_COUNTERPARTY', weight: 0.15 },
+  { feature: 'PROTOCOL_BEHAVIOR_SIMILARITY', weight: 0.15 },
+  { feature: RESERVE_WEIGHT, weight: 0.15 },
+] as const
+
+/** Phase 8 policy bands. Half-open [min, max), top band closed at 1.0. */
+const SEED_THRESHOLDS = [
+  { band: 'ALLOW', minScore: 0, maxScore: 0.35 },
+  { band: 'CHALLENGE', minScore: 0.35, maxScore: 0.7 },
+  { band: 'BLOCK', minScore: 0.7, maxScore: 1 },
+] as const
+
+const SEED_POLICY_VERSION = '1.0'
+
+async function seedPolicy(): Promise<void> {
+  for (const w of SEED_WEIGHTS) {
+    await prisma.riskWeight.upsert({
+      where: { feature: w.feature },
+      create: w,
+      update: { weight: w.weight },
+    })
+  }
+  for (const t of SEED_THRESHOLDS) {
+    await prisma.riskThreshold.upsert({
+      where: { band: t.band },
+      create: t,
+      update: { minScore: t.minScore, maxScore: t.maxScore },
+    })
+  }
+
+  const existing = await prisma.policyVersion.findUnique({
+    where: { version: SEED_POLICY_VERSION },
+  })
+  if (existing) {
+    logger.info({ version: SEED_POLICY_VERSION }, '[seed:suganthan] policy version already exists')
+    return
+  }
+
+  const policy = await activatePolicyVersion(SEED_POLICY_VERSION)
+  logger.info(
+    { version: policy.version, weights: policy.weights.length, bands: policy.thresholds.length },
+    '[seed:suganthan] policy seeded and activated',
+  )
+}
+
 async function seedSuganthan(): Promise<void> {
   for (const d of DEPLOYMENTS) {
     // Keyed on deploymentId so re-seeding is idempotent and an operator's
@@ -90,7 +153,8 @@ async function seedSuganthan(): Promise<void> {
   const count = await prisma.deploymentRegistryEntry.count()
   logger.info({ deployments: count }, '[seed:suganthan] deployment registry seeded')
 
-  // TODO Phase 8:  RiskWeight, RiskThreshold, initial active PolicyVersion
+  await seedPolicy()
+
   // TODO Phase 12: scenario A (clean wallet) + scenario B (coordinated cluster)
   //                using FIXTURE_CLEAN_WALLET / FIXTURE_CLUSTERED_WALLET from
   //                src/interfaces/stub-fixtures.ts so the addresses stay stable

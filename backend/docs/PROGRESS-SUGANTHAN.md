@@ -19,13 +19,13 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 5     | Evidence Normalizer                                 | ✅ **Done** — idempotency verified against real Postgres                       |
 | 6     | Behavior Graph & Clustering                         | ✅ **Done**                                                                    |
 | 7     | Risk Engine: feature extractors                     | ✅ **Done**                                                                    |
-| 8     | Robust baselines, scoring, policy bands             | ⬜ **NEXT** — no credentials needed                                            |
-| 9     | Substreams Rust module                              | ⬜ Not started — **long pole**; needs SUBSTREAMS_ENDPOINT                      |
+| 8     | Robust baselines, scoring, policy bands             | ✅ **Done**                                                                    |
+| 9     | Substreams Rust module                              | ⬜ **NEXT** — long pole; needs SUBSTREAMS_ENDPOINT                             |
 | 10    | Substreams Node bridge + cache invalidation         | ⬜ Not started — blocked on 9                                                  |
 | 11    | Provenance & freshness guarantees                   | ⬜ Not started                                                                 |
 | 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
 
-**7 of 12 done. 135 tests passing.**
+**8 of 12 done. 168 tests passing. The engine now produces verdicts.**
 
 ----- | --------------------------------------------------- | ----------------------------------------------- |
 | 1 | Access & credentials (Graph) + local infra | 🟡 Partial — infra done, credentials pending |
@@ -35,8 +35,8 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 5 | Evidence Normalizer | ⬜ Not started — _no credentials needed_ |
 | 6 | Behavior Graph & Clustering | ⬜ Not started — _no credentials needed_ |
 | 7 | Risk Engine: feature extractors | ✅ **Done** |
-| 8 | Robust baselines, scoring, policy bands | ⬜ **NEXT** — no credentials needed |
-| 9 | Substreams Rust module | ⬜ Not started — **long pole, start early** |
+| 8 | Robust baselines, scoring, policy bands | ✅ **Done** |
+| 9 | Substreams Rust module | ⬜ **NEXT** — long pole; needs SUBSTREAMS_ENDPOINT |
 | 10 | Substreams Node bridge + cache invalidation | ⬜ Not started — blocked on 9 |
 | 11 | Provenance & freshness guarantees | ⬜ Not started |
 | 12 | Testing, seed data, Sylesh interface | 🟡 Partial — interface stubbed early, see below |
@@ -408,6 +408,68 @@ The formula is fixed by the spec, so the correction went into confidence:
 sequences shorter than 4 events downgrade it one level and attach the note
 "similarity is weakly evidenced". The value stays as specified; the weakness is
 visible on the Evidence Receipt instead of silently inflating a score.
+
+---
+
+## ✅ Phase 8 — Done — the engine now decides
+
+`src/risk/{robust,scoring,policy}.ts` plus `docs/RISK-MODEL.md`.
+
+**Live run against real Postgres:**
+
+```
+=== COORDINATED RING (5 wallets) ===
+  clusters formed : 1 (density 1.00, HIGH)
+    FUNDING_CORRELATION            1.000 x 0.25 = 0.250  [HIGH]
+    TIMING_CORRELATION             0.976 x 0.15 = 0.146  [HIGH]
+    WALLET_AGE_SIMILARITY          1.000 x 0.15 = 0.150  [HIGH]
+    SHARED_COUNTERPARTY            1.000 x 0.15 = 0.150  [HIGH]
+    PROTOCOL_BEHAVIOR_SIMILARITY   1.000 x 0.15 = 0.150  [HIGH]
+  SCORE : 0.8465   DECISION : BLOCK   policyVersion : 1.0
+
+=== CLEAN WALLETS (5 wallets) ===
+  clusters formed : 0
+  SCORE : 0.0825   DECISION : ALLOW   policyVersion : 1.0
+```
+
+Weights, thresholds and PolicyVersion 1.0 are all seeded and active in Postgres.
+
+### The contamination fix is real, and there is a test named after it
+
+If 70% of a campaign is one Sybil ring scoring 0.9 on funding correlation and
+the honest 30% score 0.05, a **mean/stddev** baseline puts the attacker less
+than one standard deviation from average — unremarkable — and makes the honest
+users the outliers. **The detector inverts.** Median/MAD does not.
+
+`THE CONTAMINATION CASE` asserts exactly this, including that a mean-based
+z-score would have said the attacker was normal.
+
+### Decisions
+
+**The baseline never changes the score.** It is reported for the receipt so an
+investigator can ask "was 0.6 high _for this campaign_?". Folding it in would
+make a decision depend on which other claims happened to be in flight.
+
+**`RESERVE` is a real row.** Unallocated 0.15 weight, always contributing 0, so
+the table honestly sums to 1.0 and the maximum achievable score is 0.85. "Why
+does nothing score 1.0?" is answerable from a row.
+
+**A feature with no weight row throws.** Scoring it silently at 0 would drop a
+whole signal without anyone noticing.
+
+**Thresholds must tile [0, 1].** A gap lets a claim fall through with no band;
+an overlap makes the band depend on row ordering. Both are rejected.
+
+**Live tables edit, PolicyVersion decides.** Scoring always reads the snapshot,
+so an operator halfway through changing weights cannot produce a decision from a
+half-changed policy. A version is never overwritten — receipts reference it.
+
+### Stated plainly in RISK-MODEL.md
+
+The weights are **a configurable demo policy, not a validated model**. They were
+not fitted against labelled Sybil data and no precision figure exists. The
+defensible claim is the stronger one: every number is an inspectable row and
+every decision replays exactly.
 
 ---
 

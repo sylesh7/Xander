@@ -7,9 +7,14 @@
 import { env } from '../config/env.js'
 import { getEvidenceForWallets } from '../evidence/repository.js'
 import { extractFeatures } from './features.js'
-import type { EvidenceWindow, FeatureOptions, FeatureResult } from './types.js'
+import type { EvidenceWindow, FeatureName, FeatureOptions, FeatureResult } from './types.js'
+import { loadActivePolicy } from './policy.js'
+import { scoreFeatures, type ScoredFeature, type ScoreResult } from './scoring.js'
 
 export * from './features.js'
+export * from './policy.js'
+export * from './robust.js'
+export * from './scoring.js'
 export * from './types.js'
 
 /** Tunables from config. Section 0.2 rule 1: never inline numbers. */
@@ -47,3 +52,24 @@ export async function extractClusterFeatures(
   }
   return extractFeatures(wallets, window, featureOptionsFromEnv())
 }
+
+/**
+ * The full Phase 7 + 8 path: extract features for a wallet set, then score them
+ * against the active policy.
+ *
+ * Returns the score, band, per-feature contributions and the policy version
+ * that produced them — everything an Evidence Receipt needs.
+ */
+export async function scoreWalletSet(
+  wallets: readonly string[],
+  opts: { since?: Date; campaignPopulations?: CampaignPopulations } = {},
+): Promise<ScoreResult & { policyVersion: string; features: ScoredFeature[] }> {
+  const [features, policy] = await Promise.all([
+    extractClusterFeatures(wallets, opts),
+    loadActivePolicy(),
+  ])
+  const result = scoreFeatures(features, policy, opts.campaignPopulations)
+  return { ...result, policyVersion: policy.version }
+}
+
+export type CampaignPopulations = Partial<Record<FeatureName, readonly number[]>>
