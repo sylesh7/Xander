@@ -80,6 +80,49 @@ That covers the Phase 2 acceptance test in the spec: _"`prisma migrate dev` runs
 
 ---
 
+## ✅ Phase 3 — Done
+
+`src/graph/token-api/` — a thin authenticated fetch wrapper. There is no
+official Token API SDK, so this is the permanent solution (Section 0.2 rule 2).
+
+`getTransfers`, `getNativeTransfers`, `getBalances`, `getTokens`, plus two
+helpers the risk engine needs: `getInboundTransfers` (both feeds merged,
+oldest-first — the input to FUNDING_CORRELATION) and `getFirstSeenBlock`
+(feeds `Wallet.firstSeenBlock` and WALLET_AGE_SIMILARITY).
+
+**Verified against the live API**, not mocks: real balances returned, 24 merged
+inbound transfers for a real mainnet address, `firstSeenBlock` resolved to 25468736. 16/16 unit tests pass with mocked fetch.
+
+### Four spec corrections found by checking the live API
+
+The spec's Section 0.3 endpoint list is wrong in one place. All four were
+verified against the service's OpenAPI document (Pinax API 3.21.1) and live
+responses:
+
+1. **`/v1/evm/transfers` has no `address` parameter** — it takes `from_address`
+   and `to_address`. Passing `address=` returns 200 while ignoring the filter,
+   so the spec's shape **fails open**: you get unrelated transfers rather than
+   an error. There is a regression test guarding this.
+2. **`/v1/evm/transfers/native` is a separate feed and is required.** A funder
+   bankrolling a cluster typically sends plain ETH for gas, which never appears
+   in the ERC-20 feed. Querying only ERC-20 would leave FUNDING_CORRELATION
+   blind to the most common funding pattern.
+3. **The free plan caps `limit` at 10 and returns 403 above it** — it does not
+   truncate. The client clamps and paginates. Rate limit is 200/min.
+4. **`token-api.thegraph.com` fails TLS on this machine** (connection reset,
+   while `thegraph.com` resolves fine). Its CNAME target
+   `token-api.service.pinax.network` is the same service and works, and is what
+   local `.env` points at. `TOKEN_API_BASE_URL` was already config, so this was
+   a one-line change rather than a code change.
+
+### Still to do here
+
+`getInboundTransfers` returns raw Token API shapes. Phase 5's normalizer turns
+them into `EvidenceEvent` rows; nothing downstream should import from
+`src/graph/token-api` directly.
+
+---
+
 ## 🟡 Phase 1 — What's left (only Suganthan can do these)
 
 | #   | Item                                                      | Status                                                     |

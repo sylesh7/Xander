@@ -15,14 +15,42 @@ from the live docs and add it — do not guess a name.
 REST. Bearer JWT on every request; **there is no unauthenticated tier**.
 
 ```
-GET https://token-api.thegraph.com/v1/evm/balances?network=mainnet&address=0x...
-GET https://token-api.thegraph.com/v1/evm/transfers?network=mainnet&address=0x...
-GET https://token-api.thegraph.com/v1/evm/tokens?network=mainnet&contract=0x...
+GET {TOKEN_API_BASE_URL}/v1/evm/balances?network=mainnet&address=0x...
+GET {TOKEN_API_BASE_URL}/v1/evm/transfers?network=mainnet&to_address=0x...
+GET {TOKEN_API_BASE_URL}/v1/evm/transfers/native?network=mainnet&to_address=0x...
+GET {TOKEN_API_BASE_URL}/v1/evm/tokens?network=mainnet&contract=0x...
 
 Headers:
   Accept: application/json
   Authorization: Bearer <GRAPH_MARKET_API_TOKEN>
 ```
+
+### Corrections verified live in Phase 3 (2026-09-07)
+
+The spec's Section 0.3 endpoint list is wrong in one place and incomplete in
+another. These were checked against the service's own OpenAPI document
+(Pinax API 3.21.1) and live responses, not recalled:
+
+1. **`/v1/evm/transfers` has no `address` parameter.** It takes `from_address`
+   and `to_address` separately. Passing `address=` returns 200 while silently
+   ignoring the filter, so this fails open — you get someone else's transfers,
+   not an error. Funding evidence uses `to_address`.
+2. **`/v1/evm/transfers/native` exists and matters.** Native ETH transfers are a
+   separate feed from ERC-20 ones. A funder bankrolling a Sybil cluster usually
+   sends plain ETH for gas, which never appears in the ERC-20 feed. Query both.
+3. **The free plan caps `limit` at 10 and returns 403 above it** — it does not
+   truncate. Clamp and paginate with `page`. Rate limit is 200/min.
+4. **Supported `network` values** (OpenAPI enum): `arbitrum-one`, `avalanche`,
+   `base`, `bsc`, `hyperevm`, `mainnet`, `optimism`, `polygon`, `unichain`.
+5. **Response field names** are snake_case: `block_num`, `datetime`,
+   `timestamp`, `transaction_id`, `log_index` (ERC-20) or
+   `transaction_index`/`call_index` (native), `contract`, `from`, `to`,
+   `amount`, `value`, `network`. Use `amount` (raw string), not `value`
+   (lossy pre-divided decimal).
+6. **`token-api.thegraph.com` may be unreachable** on some networks — TLS
+   handshake reset while `thegraph.com` itself resolves fine. Its CNAME target
+   `token-api.service.pinax.network` is the same service and works. This is why
+   `TOKEN_API_BASE_URL` is config.
 
 **There is no official Token API Node/TypeScript SDK.** Two independent research
 passes confirmed this. Write a thin authenticated `fetch` wrapper — that is the

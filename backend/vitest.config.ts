@@ -8,6 +8,7 @@ export default defineConfig({
       NODE_ENV: 'test',
       DATABASE_URL: 'postgresql://user:pass@localhost:5432/sybil_shield',
       REDIS_URL: 'redis://localhost:6379',
+      GRAPH_MARKET_API_TOKEN: 'test-token',
     },
   },
 })

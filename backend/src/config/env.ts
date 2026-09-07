@@ -54,6 +54,22 @@ const envSchema = z.object({
   TOKEN_API_BASE_URL: z.string().url().default('https://token-api.thegraph.com'),
   GRAPH_GATEWAY_API_KEY: optionalStr(),
 
+  /**
+   * Supported Token API network ids. Config, never a hardcoded switch
+   * (Section 0.2 rule 1). Verified against the service's OpenAPI enum.
+   */
+  TOKEN_API_NETWORKS: z
+    .string()
+    .default('arbitrum-one,avalanche,base,bsc,hyperevm,mainnet,optimism,polygon,unichain'),
+  TOKEN_API_DEFAULT_NETWORK: z.string().default('mainnet'),
+
+  /**
+   * Max items the plan allows per request. The API returns 403 — not a
+   * truncated list — when `limit` exceeds this, so the client clamps to it and
+   * paginates. Free tier is 10 (from the JWT's TOKEN_API_ITEMS_RETURNED claim).
+   */
+  TOKEN_API_MAX_ITEMS: num(10),
+
   // --- Substreams (Phases 9-10) -------------------------------------------
   // Locked P0 per Section 0.6 — do not feature-flag this off.
   ENABLE_SUBSTREAMS: boolFromString.default('true'),
