@@ -10,20 +10,36 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 
 ## Status board
 
-| Phase | Scope                                               | Status                                          |
-| ----- | --------------------------------------------------- | ----------------------------------------------- |
-| 1     | Access & credentials (Graph) + local infra          | 🟡 Partial — infra done, credentials pending    |
-| 2     | Repo scaffold + shared schema + env config          | ✅ **Done**                                     |
-| 3     | Token API client                                    | ⬜ Not started — blocked on 1.1                 |
-| 4     | Standardized Subgraphs client + Deployment Registry | ⬜ Not started — blocked on 1.2 / 1.3           |
-| 5     | Evidence Normalizer                                 | ⬜ Not started — _no credentials needed_        |
-| 6     | Behavior Graph & Clustering                         | ⬜ Not started — _no credentials needed_        |
-| 7     | Risk Engine: feature extractors                     | ⬜ Not started — _no credentials needed_        |
-| 8     | Robust baselines, scoring, policy bands             | ⬜ Not started — _no credentials needed_        |
-| 9     | Substreams Rust module                              | ⬜ Not started — **long pole, start early**     |
-| 10    | Substreams Node bridge + cache invalidation         | ⬜ Not started — blocked on 9                   |
-| 11    | Provenance & freshness guarantees                   | ⬜ Not started                                  |
-| 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early, see below |
+| Phase | Scope                                               | Status                                                                         |
+| ----- | --------------------------------------------------- | ------------------------------------------------------------------------------ |
+| 1     | Access & credentials (Graph) + local infra          | ✅ **Done** — Token API token + Gateway key + deployment IDs all verified live |
+| 2     | Repo scaffold + shared schema + env config          | ✅ **Done**                                                                    |
+| 3     | Token API client                                    | ✅ **Done** — verified against the live API                                    |
+| 4     | Standardized Subgraphs client + Deployment Registry | ✅ **Done** — verified live across 4 real deployments                          |
+| 5     | Evidence Normalizer                                 | ✅ **Done** — idempotency verified against real Postgres                       |
+| 6     | Behavior Graph & Clustering                         | ✅ **Done**                                                                    |
+| 7     | Risk Engine: feature extractors                     | ⬜ **NEXT** — no credentials needed                                            |
+| 8     | Robust baselines, scoring, policy bands             | ⬜ Not started — no credentials needed                                         |
+| 9     | Substreams Rust module                              | ⬜ Not started — **long pole**; needs SUBSTREAMS_ENDPOINT                      |
+| 10    | Substreams Node bridge + cache invalidation         | ⬜ Not started — blocked on 9                                                  |
+| 11    | Provenance & freshness guarantees                   | ⬜ Not started                                                                 |
+| 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
+
+**6 of 12 done. 97 tests passing.**
+
+----- | --------------------------------------------------- | ----------------------------------------------- |
+| 1 | Access & credentials (Graph) + local infra | 🟡 Partial — infra done, credentials pending |
+| 2 | Repo scaffold + shared schema + env config | ✅ **Done** |
+| 3 | Token API client | ⬜ Not started — blocked on 1.1 |
+| 4 | Standardized Subgraphs client + Deployment Registry | ⬜ Not started — blocked on 1.2 / 1.3 |
+| 5 | Evidence Normalizer | ⬜ Not started — _no credentials needed_ |
+| 6 | Behavior Graph & Clustering | ⬜ Not started — _no credentials needed_ |
+| 7 | Risk Engine: feature extractors | ⬜ Not started — _no credentials needed_ |
+| 8 | Robust baselines, scoring, policy bands | ⬜ Not started — _no credentials needed_ |
+| 9 | Substreams Rust module | ⬜ Not started — **long pole, start early** |
+| 10 | Substreams Node bridge + cache invalidation | ⬜ Not started — blocked on 9 |
+| 11 | Provenance & freshness guarantees | ⬜ Not started |
+| 12 | Testing, seed data, Sylesh interface | 🟡 Partial — interface stubbed early, see below |
 
 ---
 
@@ -123,7 +139,7 @@ them into `EvidenceEvent` rows; nothing downstream should import from
 
 ---
 
-## ✅ Phase 4 — Code done (needs credentials to run live)
+## ✅ Phase 4 — Done
 
 `src/graph/standardized-subgraphs/`
 
@@ -342,28 +358,37 @@ number Section 0.2 rule 4 forbids.
 
 ---
 
-## 🟡 Phase 1 — What's left (only Suganthan can do these)
+## ✅ Phase 1 — Done
 
-| #   | Item                                                      | Status                                                     |
-| --- | --------------------------------------------------------- | ---------------------------------------------------------- |
-| 1.1 | Graph Market account + Token API JWT                      | ⬜ **Blocking Phase 3**                                    |
-| 1.2 | Gateway API key from Subgraph Studio                      | ⬜ **Blocking Phase 4** — also hand to Sylesh for Phase 15 |
-| 1.3 | Deployment IDs (`Qm…`) for 2–3 protocols                  | ⬜ **Blocking Phase 4**                                    |
-| 1.4 | Local Postgres + Redis                                    | ✅ Done                                                    |
-| 1.5 | Confirm Start Fresh vs. Continuity on the live prize page | ⬜                                                         |
+| #   | Item                                                      | Status                                            |
+| --- | --------------------------------------------------------- | ------------------------------------------------- |
+| 1.1 | Graph Market account + Token API JWT                      | ✅ Free tier, verified live                       |
+| 1.2 | Gateway API key from Subgraph Studio                      | ✅ Verified live. **Hand to Sylesh for Phase 15** |
+| 1.3 | Deployment IDs (`Qm…`)                                    | ✅ 5 seeded, each schema-introspected first       |
+| 1.4 | Local Postgres + Redis                                    | ✅ Done                                           |
+| 1.5 | Confirm Start Fresh vs. Continuity on the live prize page | ⬜ Still open                                     |
 
-**Acceptance test still outstanding:** a `curl` against `https://token-api.thegraph.com/v1/evm/balances?network=mainnet&address=<real address>` with the bearer token returns real data, not a 401.
+**Still needed from outside the code:** `SUBSTREAMS_ENDPOINT` for Phase 9/10.
+The existing Token API JWT already covers Substreams (`substreams_plan_tier:
+FREE`), so this is an endpoint URL, not a new credential.
 
 ---
 
-## Recommended order from here
+## What's left
 
-The spec numbers phases 1→12, but that isn't the fastest safe path, because **half this track needs no credentials at all**:
+1. **Phase 7 — feature extractors** (next). The five features at cluster level.
+   No credentials, pure functions, testable on synthetic data.
+2. **Phase 8 — scoring.** Median/MAD baselines, weights and thresholds from
+   tables, `PolicyVersion` snapshotting. **After this the demo works end to
+   end:** a coordinated cluster scores CHALLENGE, a clean wallet ALLOW.
+3. **Phase 9 — Substreams Rust module.** The long pole. Needs
+   `SUBSTREAMS_ENDPOINT`; budget days, not hours, if Rust/WASM is new.
+4. **Phase 10 — sink bridge**, cursor resume, reorg undo, and the
+   `risk-invalidation` queue Sylesh consumes.
+5. **Phase 11 — freshness guard.** Stale or failed evidence yields
+   `PENDING_REVIEW`, never a score.
+6. **Phase 12 — replace the interface stub** with the real implementation and
+   finish the seed scenarios.
 
-1. **Fire off Phase 1.1–1.3 now** — account signups have real latency.
-2. **While waiting, build 5 → 6 → 7 → 8** against synthetic fixtures. The normalizer, clustering and all five feature extractors are pure functions testable with fabricated `EvidenceEvent` rows; they never touch the network.
-3. **Start Phase 9 (Substreams/Rust) early and in parallel.** The spec is blunt that it's days, not hours, if Rust/protobuf/WASM are new. The scaffold removes guesswork, not the learning curve.
-4. **Phases 3 and 4** the moment credentials land.
-5. **Phases 10 → 11 → 12** to close out.
-
-Phase 12's interface file was pulled forward into Phase 2 deliberately — see `EVIDENCE-RISK-INTERFACE.md`.
+Phases 7 and 8 are the highest-value next work: they turn stored evidence into
+an actual decision.
