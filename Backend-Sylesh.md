@@ -50,6 +50,9 @@ This is now locked. Three teams' worth of independent review converged on it, an
 
 The full schema lives in `Backend-Suganthan.md` Section 0.4 and in `db/prisma/schema.prisma` in the shared repo — it is not repeated in full here to avoid the two files silently drifting apart; **always check the actual `schema.prisma` file in the repo as the source of truth, not either markdown doc, once Phase 2 has run.** The models you write to most: `Claim`, `VerificationChallenge`, `EvidenceReceipt`, `PolicyVersion`. The models you only read: `Wallet`, `Cluster`, `RiskWeight`, `RiskThreshold` (Suganthan's track owns writes to these).
 
+**Schema change log** (Section 0.4 is owned by `Backend-Suganthan.md`; this list exists so you are never surprised by a migration):
+- *2026-09-07, Phase 5* — `EvidenceEvent` gained `@@unique([transactionHash, eventType, wallet, sourceId])`. Needed for the idempotent upsert Phase 5 requires; there was no unique key to upsert against. Affects a model your track only reads, so nothing on your side changes. Migration `add_evidence_event_unique`.
+
 One field to know cold: `VerificationChallenge.nullifier` is `Decimal @db.Decimal(78, 0)` — World ID nullifiers are 256-bit ints returned as `0x`-hex strings; convert to decimal before storing, Postgres has no native 256-bit int type.
 
 ### 0.5 Repo layout — your folders

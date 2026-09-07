@@ -193,6 +193,67 @@ why they are separate modules.
 
 ---
 
+## ✅ Phase 5 — Done
+
+`src/evidence/` — the boundary after which nothing knows which Graph product
+produced a fact.
+
+- **`types.ts`** — `NormalizedEvidenceEvent`, plus closed `EventType` /
+  `SourceType` unions. `EventType` is closed on purpose: Phase 7's
+  PROTOCOL_BEHAVIOR_SIMILARITY compares ordered sequences of these, so a typo
+  becoming a new "type" would make two identical behaviours look different.
+- **`normalizer.ts`** — pure functions per source. No I/O, no clock, no
+  database, so Phases 6-8 can be built and tested against fabricated events
+  with no network.
+- **`repository.ts`** — the only writer of `EvidenceEvent` rows, so idempotency
+  lives in one place rather than being remembered at four call sites. Also
+  carries `rollbackEvidenceAboveBlock` for Phase 10's reorg undo and
+  `getLatestBlockForChain` for Phase 11's freshness guard.
+
+**Acceptance test passes against real Postgres**, not a mock: feeding the same
+Token API response through twice creates one row and reports the second as
+skipped. Mocking Prisma here would have tested that the mock returns what the
+mock was told to return, and would have passed happily before the constraint
+existed.
+
+### Schema change — `EvidenceEvent` now has a unique constraint
+
+```prisma
+@@unique([transactionHash, eventType, wallet, sourceId])
+```
+
+Phase 5 requires an idempotent upsert, and `EvidenceEvent` had **no unique key
+to upsert against**. Section 0.4 in `Backend-Suganthan.md` is updated to match,
+and a schema change log now sits in `Backend-Sylesh.md` Section 0.4. This only
+touches a model Sylesh's track reads and never writes, so nothing changes on
+their side — but they should re-run `prisma migrate deploy`.
+
+**Why `sourceId` is in the key.** The spec suggests
+`transactionHash + eventType + wallet` "or similar composite". Those three alone
+collide whenever one transaction carries two events of the same type for the
+same wallet — a batched deposit into two markets, a multi-hop swap. The second
+would silently overwrite the first, and evidence would go quietly missing.
+`sourceId` holds the _source's own_ event key (`hash-logIndex` for subgraphs,
+`txid-logIndex` for the Token API), which disambiguates without inventing a
+`logIndex` column the locked schema does not have.
+
+### Three decisions worth knowing
+
+**`wallet` is the perspective address.** One transfer normalized from both ends
+produces two rows — each is evidence about a different wallet — which is why
+`wallet` is part of the uniqueness key. Normalizing from an address that is
+neither side throws, rather than inventing a relationship the chain never
+recorded.
+
+**Protocol and deployment come from the registry, never the response.** A
+subgraph response cannot vouch for which pinned deployment produced it.
+
+**Events are immutable observations, so this is an insert, not an update.** If a
+row exists for that key, the same on-chain fact was already recorded; rewriting
+it would silently mutate the evidence an Evidence Receipt was built from.
+
+---
+
 ## 🟡 Phase 1 — What's left (only Suganthan can do these)
 
 | #   | Item                                                      | Status                                                     |

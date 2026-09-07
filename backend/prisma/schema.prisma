@@ -90,6 +90,14 @@ model EvidenceEvent {
   deploymentId    String?
   createdAt       DateTime @default(now())
 
+  // Phase 5 idempotency. The spec suggests "transactionHash + eventType + wallet
+  // (or similar composite)"; sourceId is included because those three alone
+  // collide whenever one transaction carries two events of the same type for
+  // the same wallet — a batched deposit into two markets, a multi-hop swap.
+  // sourceId holds the SOURCE's own event key (`hash-logIndex` for subgraphs,
+  // `txid-logIndex` for Token API), so it disambiguates without inventing a
+  // logIndex column.
+  @@unique([transactionHash, eventType, wallet, sourceId])
   @@index([wallet])
   @@index([blockNumber])
 }
