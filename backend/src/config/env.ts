@@ -101,6 +101,12 @@ const envSchema = z.object({
   TIMING_NORMALIZATION_SECONDS: num(3600),
   AGE_NORMALIZATION_BLOCKS: num(50_000),
   FRESHNESS_MAX_BLOCK_LAG: num(100),
+  /**
+   * Cap on the event sequence PROTOCOL_BEHAVIOR_SIMILARITY compares (Phase 7).
+   * LCS is O(n*m) per pair, so an uncapped busy wallet would dominate the whole
+   * scoring pass.
+   */
+  PROTOCOL_SEQUENCE_MAX_LENGTH: num(200),
 
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Declared optional here so this track boots without World credentials.

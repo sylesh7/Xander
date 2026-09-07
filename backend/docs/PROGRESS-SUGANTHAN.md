@@ -18,14 +18,14 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 4     | Standardized Subgraphs client + Deployment Registry | ✅ **Done** — verified live across 4 real deployments                          |
 | 5     | Evidence Normalizer                                 | ✅ **Done** — idempotency verified against real Postgres                       |
 | 6     | Behavior Graph & Clustering                         | ✅ **Done**                                                                    |
-| 7     | Risk Engine: feature extractors                     | ⬜ **NEXT** — no credentials needed                                            |
-| 8     | Robust baselines, scoring, policy bands             | ⬜ Not started — no credentials needed                                         |
+| 7     | Risk Engine: feature extractors                     | ✅ **Done**                                                                    |
+| 8     | Robust baselines, scoring, policy bands             | ⬜ **NEXT** — no credentials needed                                            |
 | 9     | Substreams Rust module                              | ⬜ Not started — **long pole**; needs SUBSTREAMS_ENDPOINT                      |
 | 10    | Substreams Node bridge + cache invalidation         | ⬜ Not started — blocked on 9                                                  |
 | 11    | Provenance & freshness guarantees                   | ⬜ Not started                                                                 |
 | 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
 
-**6 of 12 done. 97 tests passing.**
+**7 of 12 done. 135 tests passing.**
 
 ----- | --------------------------------------------------- | ----------------------------------------------- |
 | 1 | Access & credentials (Graph) + local infra | 🟡 Partial — infra done, credentials pending |
@@ -34,8 +34,8 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 4 | Standardized Subgraphs client + Deployment Registry | ⬜ Not started — blocked on 1.2 / 1.3 |
 | 5 | Evidence Normalizer | ⬜ Not started — _no credentials needed_ |
 | 6 | Behavior Graph & Clustering | ⬜ Not started — _no credentials needed_ |
-| 7 | Risk Engine: feature extractors | ⬜ Not started — _no credentials needed_ |
-| 8 | Robust baselines, scoring, policy bands | ⬜ Not started — _no credentials needed_ |
+| 7 | Risk Engine: feature extractors | ✅ **Done** |
+| 8 | Robust baselines, scoring, policy bands | ⬜ **NEXT** — no credentials needed |
 | 9 | Substreams Rust module | ⬜ Not started — **long pole, start early** |
 | 10 | Substreams Node bridge + cache invalidation | ⬜ Not started — blocked on 9 |
 | 11 | Provenance & freshness guarantees | ⬜ Not started |
@@ -355,6 +355,59 @@ meaningless.
 `persistClusters` writes `score: 0` and leaves scoring to Phase 8 — a
 placeholder that looked like a real score is exactly the confident invented
 number Section 0.2 rule 4 forbids.
+
+---
+
+## ✅ Phase 7 — Done
+
+`src/risk/features.ts` — the five features, all pure
+`(walletSet, evidenceWindow, opts) => { value, confidence, sourceEvidenceIds }`,
+exactly as the acceptance test specifies. No database, no network, no clock.
+
+All five separate a coordinated cluster from an unrelated set. 38 tests.
+
+### `value` and `confidence` answer different questions
+
+`value` is how strong the signal is. `confidence` is how much evidence there was
+to compute it from. A feature computed from 2 of 20 wallets can produce a
+confident-looking number from almost nothing, so confidence is derived from
+**coverage**, never from the value. There is a test asserting that 0-with-LOW
+("we found nothing and barely looked") is distinguishable from 0-with-HIGH ("we
+looked hard and they are genuinely unrelated").
+
+### Four decisions
+
+**Shared funder ≠ co-funded.** One exchange hot wallet funds thousands of
+unrelated people over years. `largestWindowCluster` does a two-pointer sweep to
+find the largest burst inside `FUNDING_WINDOW_HOURS`, so only wallets funded
+together count.
+
+**WALLET_AGE_SIMILARITY stays in block space.** The spec says "converted to
+approximate timestamp via average block time" and then normalizes by a block
+COUNT, which is dimensionally inconsistent. Staying in blocks also avoids an
+average-block-time constant that would be wrong the moment a cluster spans
+chains — mainnet is ~12s a block, Polygon ~2s.
+
+**TIMING_CORRELATION uses each wallet's FIRST activity.** The spec says
+"timestamps" without saying which. First-activity measures coordinated arrival —
+a ring waking up together — rather than being dominated by whichever member
+stayed busiest afterwards.
+
+**SHARED_COUNTERPARTY averages over ALL pairs, including empty ones.** Skipping
+empty pairs would let a cluster of mostly-unknown wallets inherit the score of
+its one well-documented pair.
+
+### A real limitation, surfaced rather than hidden
+
+**Short event sequences inflate PROTOCOL_BEHAVIOR_SIMILARITY.** Drawn from a
+seven-value event vocabulary, two wallets with two events each that both open
+with a transfer already score 0.5 by coincidence. This surfaced as a failing
+test and is a property of the formula, not a bug.
+
+The formula is fixed by the spec, so the correction went into confidence:
+sequences shorter than 4 events downgrade it one level and attach the note
+"similarity is weakly evidenced". The value stays as specified; the weakness is
+visible on the Evidence Receipt instead of silently inflating a score.
 
 ---
 
