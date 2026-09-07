@@ -1,0 +1,155 @@
+// prisma/schema.prisma
+//
+// LOCKED SHARED SCHEMA — Backend-Suganthan.md Section 0.4.
+// Sylesh's track builds against this exact shape. Do not redesign models here.
+// If a model must change, change Section 0.4 in BOTH markdown docs in the same
+// sitting and tell the other person before running `prisma migrate dev`.
+//
+// Whoever runs `prisma migrate dev` first owns the migration file for a change.
+//
+// The generator + datasource blocks below are NOT in Section 0.4 (it starts at
+// the first model). They are required by Prisma. Everything from the
+// "model DeploymentRegistryEntry" line down is byte-identical to Section 0.4,
+// extracted programmatically from Backend-Suganthan.md rather than retyped.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+
+model DeploymentRegistryEntry {
+  id            String   @id @default(cuid())
+  protocol      String
+  chain         String
+  schemaFamily  String   // "lending-cdp" | "dex-amm" | "yield-aggregator" | ...
+  deploymentId  String   // the Qm... id from Graph Explorer
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+}
+
+model PolicyVersion {
+  id          String   @id @default(cuid())
+  version     String   @unique   // e.g. "1.0", "1.1" — bump manually, never overwrite
+  weights     Json               // snapshot of RiskWeight rows at activation time
+  thresholds  Json               // snapshot of RiskThreshold rows at activation time
+  activatedAt DateTime @default(now())
+  active      Boolean  @default(false) // exactly one row true at a time — enforce with a transaction, not a unique constraint (Postgres has no partial-unique-on-boolean without a filtered index; add one if you want DB-level enforcement: `@@unique([active])` won't work for "at most one true" — use a partial index in a raw migration if you want belt-and-suspenders)
+}
+
+model RiskWeight {
+  id        String  @id @default(cuid())
+  feature   String  @unique  // "FUNDING_CORRELATION", "TIMING_CORRELATION", ...
+  weight    Float
+  updatedAt DateTime @updatedAt
+}
+
+model RiskThreshold {
+  id        String  @id @default(cuid())
+  band      String  @unique  // "ALLOW" | "CHALLENGE" | "BLOCK"
+  minScore  Float
+  maxScore  Float
+  updatedAt DateTime @updatedAt
+}
+
+model Wallet {
+  address         String   @id
+  firstSeenBlock  BigInt?
+  createdAt       DateTime @default(now())
+  cluster         Cluster? @relation(fields: [clusterId], references: [id])
+  clusterId       String?
+}
+
+model Cluster {
+  id          String   @id @default(cuid())
+  confidence  String   // "LOW" | "MEDIUM" | "HIGH"
+  score       Float
+  wallets     Wallet[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model EvidenceEvent {
+  id              String   @id @default(cuid())
+  chain           String
+  wallet          String
+  counterparty    String?
+  eventType       String   // "transfer" | "deposit" | "withdraw" | "borrow" | "repay" | "swap" | ...
+  protocol        String?
+  protocolType    String?  // schema family
+  amount          String?  // string, never float — these are on-chain amounts
+  timestamp       DateTime
+  blockNumber     BigInt
+  transactionHash String
+  sourceType      String   // "token-api" | "standardized-subgraph" | "substreams"
+  sourceId        String
+  deploymentId    String?
+  createdAt       DateTime @default(now())
+
+  @@index([wallet])
+  @@index([blockNumber])
+}
+
+model RiskEvidence {
+  id               String   @id @default(cuid())
+  wallet           String
+  clusterId        String?
+  feature          String
+  value            Float
+  baseline         Float?
+  confidence       String
+  source           String
+  sourceDeployment String?
+  block            BigInt?
+  observedAt       DateTime @default(now())
+}
+
+model Claim {
+  id              String   @id @default(cuid())
+  wallet          String
+  campaignId      String
+  riskDecision    String   // "ALLOW" | "CHALLENGE" | "BLOCK" | "PENDING_REVIEW"
+  clusterId       String?
+  policyVersion   String?  // the PolicyVersion.version active when this decision was made
+  createdAt       DateTime @default(now())
+  decidedAt       DateTime?
+
+  @@unique([wallet, campaignId]) // idempotency — see Sylesh Phase 22
+}
+
+model VerificationChallenge {
+  id               String   @id @default(cuid())
+  claimId          String
+  wallet           String
+  // World ID nullifiers are 256-bit ints, returned as 0x-hex. Convert to
+  // decimal before storing — Postgres has no native 256-bit int type.
+  nullifier        Decimal? @db.Decimal(78, 0)
+  rpId             String?
+  status           String   // "ISSUED" | "PASSED" | "FAILED" | "EXPIRED"
+  worldActionId    String
+  signalHash       String
+  createdAt        DateTime @default(now())
+  resolvedAt       DateTime?
+
+  @@unique([nullifier, worldActionId])
+}
+
+model EvidenceReceipt {
+  id                String   @id @default(cuid())
+  claimId           String   @unique
+  wallet            String
+  clusterId         String?
+  decision          String
+  riskScore         Float
+  confidence        String
+  features          Json     // [{ name, value }]
+  sources           Json     // [{ type, deployment, block }]
+  policyVersion     String
+  requiredAssurance String?  // "SELFIE_CHECK" | null
+  worldChallengeId  String?
+  createdAt         DateTime @default(now())
+}
