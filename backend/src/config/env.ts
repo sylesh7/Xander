@@ -70,6 +70,15 @@ const envSchema = z.object({
    */
   TOKEN_API_MAX_ITEMS: num(10),
 
+  /**
+   * Standardized Subgraphs gateway (Phase 4). The API key is created in
+   * Subgraph Studio under the "API Keys" tab — it is NOT the subgraph deploy
+   * key, which only publishes your own subgraph and cannot query the gateway.
+   */
+  GRAPH_GATEWAY_BASE_URL: z.string().url().default('https://gateway.thegraph.com'),
+  /** How long the deployment registry cache lives before a DB re-read. */
+  DEPLOYMENT_REGISTRY_TTL_SECONDS: num(300),
+
   // --- Substreams (Phases 9-10) -------------------------------------------
   // Locked P0 per Section 0.6 — do not feature-flag this off.
   ENABLE_SUBSTREAMS: boolFromString.default('true'),

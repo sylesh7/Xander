@@ -60,20 +60,50 @@ import a package that claims to be one.
 `network` is one of The Graph's supported network IDs. Load the supported list
 from config; never a hardcoded `switch`.
 
+## Getting the Gateway API key
+
+**Subgraph Studio → "API Keys" tab → "Create API Key"**, at
+<https://thegraph.com/studio/>. Free.
+
+This is **not** the subgraph deploy key. A deploy key (`graph auth <key>`)
+only publishes your own subgraph and cannot query the gateway; the two live on
+different Studio pages and are easy to confuse. This project never authors or
+deploys a subgraph — it queries existing ones — so the deploy key is never used.
+
+The same key powers Subgraph MCP (Sylesh Phase 15).
+
 ## Standardized Subgraphs (Phase 4 — cross-protocol DeFi)
 
-GraphQL. Query URL pattern, confirmed exactly:
+GraphQL. **Two** gateway URL forms, both confirmed live:
 
 ```
-https://gateway.thegraph.com/api/{GRAPH_GATEWAY_API_KEY}/subgraphs/id/{deploymentId}
+https://gateway.thegraph.com/api/{API_KEY}/subgraphs/id/{SUBGRAPH_ID}
+https://gateway.thegraph.com/api/{API_KEY}/deployments/id/{DEPLOYMENT_ID}
 ```
 
-`deploymentId` is the `Qm...` id from Graph Explorer — **never the display name**.
-A wrong or stale deployment id silently returns nothing useful.
+The key may also travel as `Authorization: Bearer {API_KEY}` instead of being
+embedded in the path.
 
-**Confirmed entity names, Messari standardized lending schema** (`lending-cdp`
-family — spans Aave, Compound, MakerDAO, Spark, Venus and dozens more across
-Ethereum, Polygon, Arbitrum, Avalanche, BSC, Optimism, Base):
+**The path segment must match the identifier kind.** A deployment id (`Qm…`
+IPFS CIDv0, or a 0x-prefixed 32-byte hash) goes under `/deployments/id/`; a
+base58 subgraph id goes under `/subgraphs/id/`. The spec shows only the
+`subgraphs` form while documenting `deploymentId` as "the `Qm...` id from Graph
+Explorer" — those are different identifier spaces, and mixing them fails to
+resolve. `client.ts` picks the path from the identifier's shape.
+
+Never use the display name. A wrong or stale deployment id silently returns
+nothing useful.
+
+The Graph publishes **11 standardized schemas**: Generic 3.0.0, DEX AMM 1.3.2,
+DEX AMM Extended 4.0.1, DEX Aggregator 1.0.2, Lending/CDP 3.1.0, Yield
+Aggregator 1.3.1, NFT Marketplace 2.1.0, Network 1.2.0, Bridge 1.2.0,
+Derivatives Perps 1.3.4, Derivatives Options 1.3.2.
+
+### Confirmed entity names
+
+**`lending-cdp`** (Messari Lending/CDP v3.1.0 — Aave, Compound, MakerDAO, Spark,
+Venus and dozens more across Ethereum, Polygon, Arbitrum, Avalanche, BSC,
+Optimism, Base):
 
 ```
 lendingProtocols, markets, accounts, positions,
@@ -81,9 +111,25 @@ deposits, borrows, repays, withdraws, liquidates, flashloans,
 financialsDailySnapshots, marketDailySnapshots, usageMetricsDailySnapshots
 ```
 
-**`dex-amm` and `yield-aggregator` entity names were NOT independently verified.**
-Pull them from the live Standardized Subgraphs docs page when writing those two
-query modules. Do not guess field names for those families.
+**`dex-amm`** (Messari DEX AMM v1.3.2) — verified 2026-09-07 against the live
+`schema-dex-amm.graphql`, which the spec had flagged as unverified. Top-level
+entities: `Token, RewardToken, LiquidityPoolFee, DexAmmProtocol,
+UsageMetricsDailySnapshot, UsageMetricsHourlySnapshot, FinancialsDailySnapshot,
+LiquidityPool, LiquidityPoolDailySnapshot, LiquidityPoolHourlySnapshot,
+Deposit, Withdraw, Swap, Account, ActiveAccount`.
+
+**`yield-aggregator`** (Messari Yield Aggregator v1.3.1) — also verified
+2026-09-07. Top-level entities: `Token, RewardToken, VaultFee, YieldAggregator,
+UsageMetricsDailySnapshot, UsageMetricsHourlySnapshot, FinancialsDailySnapshot,
+Vault, VaultDailySnapshot, VaultHourlySnapshot, Deposit, Withdraw, Account,
+ActiveAccount`.
+
+**The families are not interchangeable.** The pool-equivalent entity is
+`markets` in lending, `liquidityPools` in dex-amm, `vaults` in yield-aggregator;
+events relate via `market` / `pool` / `vault` respectively. Only dex-amm has
+`swaps`; only lending has `borrows`/`repays`/`liquidates`; yield-aggregator has
+deposits and withdraws only. This is precisely why the code is organised one
+module per family — a shared "generic" query would break on all three.
 
 Structure query modules **one per schema family, not one per protocol**. Two
 different deployment ids tagged with the same `schemaFamily` must run through the
@@ -122,6 +168,7 @@ Scope the Rust module narrowly: emit new funding transfers and new claim/reward
 events only. Do not reimplement the risk engine inside the WASM module.
 
 Three things the bridge must do (Phase 10):
+
 1. Verify `SUBSTREAMS_WEBHOOK_SECRET`.
 2. **Persist the cursor** so a restart resumes instead of reprocessing.
 3. **Handle reorgs** — the sink's "undo" signal must roll back the corresponding
@@ -137,7 +184,10 @@ https://subgraphs.mcp.thegraph.com/sse
 Authorization: Bearer <GRAPH_GATEWAY_API_KEY>
 ```
 
-Same gateway key as Phase 4. Client is `@mastra/mcp`'s `MCPClient`, which
+Same gateway key as Phase 4. Covers 15,000+ subgraphs. Tools it exposes: get
+schema by deployment id / subgraph id / IPFS hash; execute query by deployment
+id or subgraph id; search subgraphs by keyword; get 30-day query counts for a
+deployment; get top subgraph deployments for a contract address. Client is `@mastra/mcp`'s `MCPClient`, which
 connects to a `url`-based remote server natively — **no `mcp-remote` proxy
 process**. The proxy shown in The Graph's Cursor/Cline docs is for editor
 integrations, not backend code.
@@ -163,3 +213,29 @@ deployment's block lag, and Substreams cursor lag.
 - Is there a protocol name hardcoded anywhere in `src/`?
 - Does a failed or stale fetch produce `PENDING_REVIEW` rather than a score?
 - Are block numbers strings/BigInt and amounts strings?
+
+## Agent0 subgraphs (ERC-8004) — available, not currently used
+
+Agent0 indexes the ERC-8004 Trustless Agents registries (Identity, Reputation,
+Validation) across Ethereum, Base, BSC, Polygon and Monad plus their testnets,
+queried through the same gateway URL and API key. Not part of the 25 phases;
+noted because agent reputation data is adjacent to Sybil scoring and may be
+worth citing in the submission.
+
+## Official skill packs (optional, not installed)
+
+The Graph and StreamingFast publish their own Claude skills:
+
+```bash
+claude plugin marketplace add streamingfast/substreams-skills
+claude plugin install substreams-dev@streamingfast-substreams
+```
+
+Nine substreams skills (dev, ethereum, solana, sql, sink, sink-deploy-local,
+hosted-sink, thegraph-market-api, testing). Worth installing before Phase 9,
+which is the Rust/WASM long pole.
+
+There is also a subgraph-authoring skill pack (`subgraph-dev`,
+`subgraph-optimization`, `subgraph-testing`). **It is not relevant here** — it
+covers writing and deploying your own subgraph, which this architecture
+deliberately does not do.

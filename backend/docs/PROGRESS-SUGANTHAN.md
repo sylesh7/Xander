@@ -123,6 +123,60 @@ them into `EvidenceEvent` rows; nothing downstream should import from
 
 ---
 
+## ✅ Phase 4 — Code done (needs credentials to run live)
+
+`src/graph/standardized-subgraphs/`
+
+- **`deployment-registry.ts`** — the only place "which protocols we support"
+  lives. Reads `DeploymentRegistryEntry` at startup with a TTL refresh, so
+  adding protocol #10 is an `INSERT` and disabling a misbehaving one is an
+  `UPDATE`. No redeploy, no code change. This is the pattern The Graph's Lisbon
+  retrospective flagged as the biggest independent convergence across ten teams.
+- **`client.ts`** — generic gateway client. Knows how to talk to the gateway and
+  how to capture provenance; knows nothing about lending, DEXes or vaults.
+- **`queries/{lending-cdp,dex-amm,yield-aggregator}.ts`** — one module per
+  **schema family**, never per protocol.
+
+Every query gets `_meta { block { number hash } deployment hasIndexingErrors }`
+spliced in automatically, and the result carries a `QueryProvenance` recording
+whether the deployment that actually served the data matches the one pinned in
+the registry.
+
+### Decisions worth knowing
+
+**The gateway has two URL forms and the spec only shows one.**
+`/subgraphs/id/{SUBGRAPH_ID}` and `/deployments/id/{DEPLOYMENT_ID}` are different
+identifier spaces. Section 0.3 shows the `subgraphs` form while Section 0.4
+documents `deploymentId` as "the `Qm...` id from Graph Explorer" — mixing them
+does not resolve. The client picks the path from the identifier's shape.
+
+**Unproven provenance counts as a mismatch.** If the gateway reports no
+deployment in `_meta`, `deploymentMatches` is `false`, not `true`. Failing
+closed is the point.
+
+**A deployment mismatch does not throw.** It is recorded in provenance and left
+for Phase 11's freshness guard to act on, which keeps "what happened" separate
+from "what do we do about it" and lets an investigator still see the data.
+
+**One failing deployment does not abort the family.** `queryFamily` returns
+per-deployment success or error, so a cluster can still be scored on what
+succeeded while Phase 11 accounts for what did not.
+
+### The two unverified schema families are now verified
+
+Phase 4 told us to pull `dex-amm` and `yield-aggregator` entity names from live
+docs rather than guess. Done — read off the live Messari schema files:
+
+- **dex-amm** (v1.3.2): pool entity is `liquidityPools`, events relate via
+  `pool`, and `swaps` exists with no lending equivalent.
+- **yield-aggregator** (v1.3.1): pool entity is `vaults`, and there is **no**
+  swap or borrow entity at all — only deposits and withdraws.
+
+Concretely: a "generic" shared query would fail on all three families, which is
+why they are separate modules.
+
+---
+
 ## 🟡 Phase 1 — What's left (only Suganthan can do these)
 
 | #   | Item                                                      | Status                                                     |
