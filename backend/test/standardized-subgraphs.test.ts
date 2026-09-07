@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   SubgraphQueryError,
   buildGatewayUrl,
+  gatewayHeaders,
   gatewayPathFor,
   queryDeployment,
   queryFamily,
@@ -58,8 +59,30 @@ describe('gateway URL construction', () => {
     expect(buildGatewayUrl('5zvR82QoaXYFyDEKLZ9t')).toContain('/subgraphs/id/')
   })
 
-  it('embeds the API key in the path', () => {
-    expect(buildGatewayUrl('QmXyz')).toMatch(/gateway\.thegraph\.com\/api\/.+\/deployments/)
+  it('keeps the API key OUT of the URL by default', () => {
+    // Header auth is the documented method and stops the key leaking into
+    // access logs, proxy logs and Referer headers.
+    const url = buildGatewayUrl('QmXyz')
+    expect(url).toBe('https://gateway.thegraph.com/api/deployments/id/QmXyz')
+    expect(url).not.toContain('test-gateway-key')
+  })
+
+  it('sends the key as Authorization: Bearer', () => {
+    expect(gatewayHeaders().Authorization).toBe('Bearer test-gateway-key')
+    expect(gatewayHeaders()['Content-Type']).toBe('application/json')
+  })
+
+  it('actually sends the auth header on a query', async () => {
+    let sent: Record<string, string> = {}
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_u: URL | string, init?: RequestInit) => {
+        sent = (init?.headers ?? {}) as Record<string, string>
+        return respond({ deposits: [] }, META_OK)
+      }),
+    )
+    await queryDeployment(entry(), 'query { deposits { id } }')
+    expect(sent.Authorization).toBe('Bearer test-gateway-key')
   })
 })
 
@@ -153,6 +176,45 @@ describe('error handling', () => {
       vi.fn(async () => new Response('rate limited', { status: 429 })),
     )
     await expect(queryDeployment(entry(), 'query { deposits { id } }')).rejects.toThrow(/HTTP 429/)
+  })
+
+  it('classifies 429 as rate limited', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('slow down', { status: 429 })),
+    )
+    const err = (await queryDeployment(entry(), 'query { a }').catch(
+      (e: unknown) => e,
+    )) as SubgraphQueryError
+    expect(err.isRateLimited).toBe(true)
+    expect(err.isAuthFailure).toBe(false)
+    expect(err.isPaymentRequired).toBe(false)
+  })
+
+  it('classifies 402 as payment required, not an auth failure', async () => {
+    // Unfunded gateway escrow / sender not whitelisted by Indexers. The
+    // credential is fine; conflating this with 401 sends an operator hunting
+    // a key problem that does not exist.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('payment required', { status: 402 })),
+    )
+    const err = (await queryDeployment(entry(), 'query { a }').catch(
+      (e: unknown) => e,
+    )) as SubgraphQueryError
+    expect(err.isPaymentRequired).toBe(true)
+    expect(err.isAuthFailure).toBe(false)
+  })
+
+  it('classifies 401/403 as auth failure', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('forbidden', { status: 403 })),
+    )
+    const err = (await queryDeployment(entry(), 'query { a }').catch(
+      (e: unknown) => e,
+    )) as SubgraphQueryError
+    expect(err.isAuthFailure).toBe(true)
   })
 
   it('one failing deployment does not abort the whole family', async () => {

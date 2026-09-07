@@ -150,6 +150,22 @@ identifier spaces. Section 0.3 shows the `subgraphs` form while Section 0.4
 documents `deploymentId` as "the `Qm...` id from Graph Explorer" — mixing them
 does not resolve. The client picks the path from the identifier's shape.
 
+Pinning to `/deployments/id/` also matters for correctness here:
+`/subgraphs/id/` follows whichever version an Indexer has synced, so a decision
+replayed months later could disagree with the original. Pinning is what keeps an
+Evidence Receipt reproducible.
+
+**Auth is the `Authorization: Bearer` header, not a key in the URL.** The spec's
+Section 0.3 shows the legacy key-in-path form. Both resolve on
+gateway.thegraph.com, but header auth is what The Graph documents and it keeps
+the key out of access logs, proxy logs and `Referer` headers. The legacy form is
+still reachable via `GRAPH_GATEWAY_AUTH_MODE=path`.
+
+**402 is not an auth failure.** It means the gateway's escrow is unfunded or its
+sender is not whitelisted by Indexers — the credential is fine. `SubgraphQueryError`
+separates `isPaymentRequired` from `isAuthFailure` and `isRateLimited` so Phase 11
+can report the real cause instead of sending someone to check their API key.
+
 **Unproven provenance counts as a mismatch.** If the gateway reports no
 deployment in `_meta`, `deploymentMatches` is `false`, not `true`. Failing
 closed is the point.

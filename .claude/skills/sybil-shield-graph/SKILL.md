@@ -74,22 +74,61 @@ The same key powers Subgraph MCP (Sylesh Phase 15).
 
 ## Standardized Subgraphs (Phase 4 — cross-protocol DeFi)
 
-GraphQL. **Two** gateway URL forms, both confirmed live:
+GraphQL over `POST`. **Two consumer-facing request shapes:**
 
 ```
-https://gateway.thegraph.com/api/{API_KEY}/subgraphs/id/{SUBGRAPH_ID}
-https://gateway.thegraph.com/api/{API_KEY}/deployments/id/{DEPLOYMENT_ID}
+POST /api/subgraphs/id/{SUBGRAPH_ID}      # gateway picks the latest synced deployment
+POST /api/deployments/id/{DEPLOYMENT_ID}  # pins an exact version
 ```
 
-The key may also travel as `Authorization: Bearer {API_KEY}` instead of being
-embedded in the path.
+**Auth is a header**, not a path segment:
 
-**The path segment must match the identifier kind.** A deployment id (`Qm…`
-IPFS CIDv0, or a 0x-prefixed 32-byte hash) goes under `/deployments/id/`; a
-base58 subgraph id goes under `/subgraphs/id/`. The spec shows only the
-`subgraphs` form while documenting `deploymentId` as "the `Qm...` id from Graph
-Explorer" — those are different identifier spaces, and mixing them fails to
-resolve. `client.ts` picks the path from the identifier's shape.
+```
+Authorization: Bearer <API_KEY>
+Content-Type: application/json
+```
+
+The legacy `/api/{key}/subgraphs/id/...` form (key in the URL) still resolves on
+gateway.thegraph.com and is available behind `GRAPH_GATEWAY_AUTH_MODE=path`, but
+header auth is the documented method and keeps the key out of access logs, proxy
+logs and `Referer` headers. Default to header.
+
+**The path segment must match the identifier kind.** A deployment id (`Qm…` IPFS
+CIDv0, or a 0x-prefixed hash) goes under `/deployments/id/`; a base58 subgraph id
+goes under `/subgraphs/id/`. The spec shows only the `subgraphs` form while
+documenting `deploymentId` as "the `Qm...` id from Graph Explorer" — different
+identifier spaces; mixing them fails to resolve. `client.ts` picks from shape.
+
+**Prefer `/deployments/id/` for this project.** `/subgraphs/id/` silently
+follows whichever version an Indexer has synced, so a decision replayed later
+could disagree with the original. Pinning is what makes an Evidence Receipt
+reproducible.
+
+### Gateway status codes worth distinguishing
+
+| Code | Meaning |
+|---|---|
+| 401 / 403 | Key missing, disabled, or outside its subgraph/domain allow-list |
+| 429 | Key's rate limit or monthly cap reached |
+| **402** | **Gateway escrow unfunded, or its sender not whitelisted by Indexers** |
+
+402 is *not* an auth failure — the credential is fine, the payment path is not.
+Conflating them sends an operator hunting a key problem that does not exist.
+
+### API key restrictions (set in Studio)
+
+A key can carry a subgraph allow-list, a domain (Origin/Referer) allow-list, and
+a rate limit, and can be disabled without deletion. All are enforced before the
+query runs — so a 403 may mean "key is fine but this subgraph isn't on its
+allow-list."
+
+### x402 — pay-per-query without an API key
+
+Autonomous agents can skip API keys entirely: `POST /api/x402/subgraphs/id/{id}`
+settles a per-query payment in USDC on Base via the x402 protocol. Not used by
+this project (we hold a key), but worth knowing it exists — an agent-run Sybil
+firewall paying per query is a coherent future shape, and the `402` code above
+is the same protocol surfacing.
 
 Never use the display name. A wrong or stale deployment id silently returns
 nothing useful.

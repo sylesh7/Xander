@@ -5,19 +5,28 @@
  * It knows nothing about lending, DEXes or vaults — that lives in queries/*,
  * one module per SCHEMA FAMILY, never per protocol.
  *
- * Gateway URL forms, both confirmed against The Graph's live docs (2026-09-07):
+ * Two consumer-facing request shapes, per The Graph's "Serving Queries" docs:
  *
- *   https://gateway.thegraph.com/api/{API_KEY}/subgraphs/id/{SUBGRAPH_ID}
- *   https://gateway.thegraph.com/api/{API_KEY}/deployments/id/{DEPLOYMENT_ID}
+ *   POST /api/subgraphs/id/{SUBGRAPH_ID}       — gateway resolves to the latest
+ *                                                sufficiently-synced deployment
+ *   POST /api/deployments/id/{DEPLOYMENT_ID}   — pins an exact version
  *
- * The spec's Section 0.3 shows only the first form while Section 0.4 documents
- * DeploymentRegistryEntry.deploymentId as "the Qm... id from Graph Explorer".
- * Those are two different identifier spaces, and the path segment must match
- * the identifier kind or the gateway will not resolve it — so this client picks
- * the path from the identifier's shape rather than hardcoding one.
+ * The spec's Section 0.3 shows only the `subgraphs` form while Section 0.4
+ * documents DeploymentRegistryEntry.deploymentId as "the Qm... id from Graph
+ * Explorer". Those are different identifier spaces and the path segment must
+ * match the identifier kind, so this client picks the path from the
+ * identifier's shape rather than hardcoding one.
  *
- * The API key may also be sent as `Authorization: Bearer <key>` instead of
- * being embedded in the path. Path form is used here to match the spec.
+ * For a Sybil firewall, pinning matters: `/deployments/id/` is what makes an
+ * Evidence Receipt reproducible months later. `/subgraphs/id/` silently follows
+ * whatever version an Indexer has synced, which would make a replayed decision
+ * disagree with the original.
+ *
+ * AUTH: `Authorization: Bearer <API_KEY>`. The legacy form embedding the key in
+ * the path (/api/{key}/subgraphs/id/...) still resolves on gateway.thegraph.com
+ * and is available via GRAPH_GATEWAY_AUTH_MODE=path, but header auth is the
+ * documented method and keeps the key out of access logs, proxy logs and
+ * Referer headers. Default is header.
  */
 import { env, requireGraphGatewayApiKey } from '../../config/env.js'
 import { logger } from '../../lib/logger.js'
@@ -29,9 +38,30 @@ export class SubgraphQueryError extends Error {
     readonly deploymentId: string,
     message: string,
     readonly graphQLErrors?: unknown[],
+    readonly status?: number,
   ) {
     super(`Subgraph query failed for ${deploymentId}: ${message}`)
     this.name = 'SubgraphQueryError'
+  }
+
+  /** Key missing, disabled, or outside its subgraph/domain allow-list. */
+  get isAuthFailure(): boolean {
+    return this.status === 401 || this.status === 403
+  }
+
+  /** Key's rate limit or monthly cap reached. */
+  get isRateLimited(): boolean {
+    return this.status === 429
+  }
+
+  /**
+   * 402: the gateway's escrow is unfunded, or its sender is not yet whitelisted
+   * by Indexers. Distinct from an auth failure — the credential is fine, the
+   * payment path is not — so an operator gets a useful alert rather than
+   * hunting a key problem that does not exist.
+   */
+  get isPaymentRequired(): boolean {
+    return this.status === 402
   }
 }
 
@@ -45,8 +75,20 @@ export function gatewayPathFor(id: string): 'deployments' | 'subgraphs' {
 }
 
 export function buildGatewayUrl(id: string): string {
-  const key = requireGraphGatewayApiKey()
-  return `${env.GRAPH_GATEWAY_BASE_URL}/api/${key}/${gatewayPathFor(id)}/id/${id}`
+  const base = `${env.GRAPH_GATEWAY_BASE_URL}/api`
+  const suffix = `${gatewayPathFor(id)}/id/${id}`
+  return env.GRAPH_GATEWAY_AUTH_MODE === 'path'
+    ? `${base}/${requireGraphGatewayApiKey()}/${suffix}`
+    : `${base}/${suffix}`
+}
+
+/** Request headers, including bearer auth unless the key rides in the path. */
+export function gatewayHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  if (env.GRAPH_GATEWAY_AUTH_MODE !== 'path') {
+    headers.Authorization = `Bearer ${requireGraphGatewayApiKey()}`
+  }
+  return headers
 }
 
 /**
@@ -96,11 +138,7 @@ export async function queryDeployment<T>(
 
   let res: Response
   try {
-    res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body,
-    })
+    res = await fetch(url, { method: 'POST', headers: gatewayHeaders(), body })
   } catch (cause) {
     throw new SubgraphQueryError(
       entry.deploymentId,
@@ -109,7 +147,12 @@ export async function queryDeployment<T>(
   }
 
   if (!res.ok) {
-    throw new SubgraphQueryError(entry.deploymentId, `HTTP ${res.status}: ${await res.text()}`)
+    throw new SubgraphQueryError(
+      entry.deploymentId,
+      `HTTP ${res.status}: ${await res.text()}`,
+      undefined,
+      res.status,
+    )
   }
 
   const payload = (await res.json()) as {

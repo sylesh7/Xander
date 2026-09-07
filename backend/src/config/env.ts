@@ -76,6 +76,12 @@ const envSchema = z.object({
    * key, which only publishes your own subgraph and cannot query the gateway.
    */
   GRAPH_GATEWAY_BASE_URL: z.string().url().default('https://gateway.thegraph.com'),
+  /**
+   * 'header' sends Authorization: Bearer <key> (documented, and keeps the key
+   * out of logs and Referer headers). 'path' uses the legacy
+   * /api/{key}/subgraphs/id/... form, still supported by gateway.thegraph.com.
+   */
+  GRAPH_GATEWAY_AUTH_MODE: z.enum(['header', 'path']).default('header'),
   /** How long the deployment registry cache lives before a DB re-read. */
   DEPLOYMENT_REGISTRY_TTL_SECONDS: num(300),
 
