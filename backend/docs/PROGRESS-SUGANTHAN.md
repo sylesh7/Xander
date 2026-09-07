@@ -299,6 +299,49 @@ a seed file, not a line of code.
 
 ---
 
+## ✅ Phase 6 — Done
+
+`src/behavior-graph/` — isolated wallets become a graph, then clusters.
+
+- **`pairwise.ts`** — pure. `earliestFunder`, `jaccard`, `scorePair`,
+  `buildEdges`.
+- **`clustering.ts`** — pure. Union-find with path compression, plus a
+  confidence rating for the cluster's _existence_.
+- **`index.ts`** — the only file here touching Prisma, so the graph maths stays
+  testable with no database.
+
+**Acceptance test passes:** 5 wallets sharing a funder in a tight window form
+one cluster (density 1.0, HIGH confidence); 5 unrelated wallets form none, with
+zero edges. A mixed run separates them.
+
+### Four decisions
+
+**A pair's score is the MAX of its signals, not the average.** Funding
+correlation and counterparty overlap are independent evidence. Wallets funded by
+one address minutes apart are related even if they later touch entirely
+different protocols — averaging would let an unrelated weak signal dilute a
+conclusive one below threshold.
+
+**Two empty counterparty sets score 0, not 1.** Set theory calls the empty
+intersection over the empty union undefined. Treating "we know nothing about
+either wallet" as perfect similarity would wire every evidence-free wallet into
+one giant cluster — the worst available failure for a Sybil firewall.
+
+**Confidence measures whether the cluster is REAL, not how risky it is.** Phase
+8 assigns the score. A five-wallet component held together by four
+barely-threshold edges is a much weaker claim than five wallets where every pair
+is linked, so density is weighed alongside edge strength.
+
+**No singleton clusters.** An unclustered wallet gets `clusterId: null`.
+Manufacturing a one-member cluster would make "is this wallet in a cluster"
+meaningless.
+
+`persistClusters` writes `score: 0` and leaves scoring to Phase 8 — a
+placeholder that looked like a real score is exactly the confident invented
+number Section 0.2 rule 4 forbids.
+
+---
+
 ## 🟡 Phase 1 — What's left (only Suganthan can do these)
 
 | #   | Item                                                      | Status                                                     |
