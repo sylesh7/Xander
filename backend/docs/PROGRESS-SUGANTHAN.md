@@ -254,6 +254,51 @@ it would silently mutate the evidence an Evidence Receipt was built from.
 
 ---
 
+## ✅ Live end-to-end run (2026-09-07)
+
+Phases 3, 4 and 5 verified together against the real gateway and real Postgres:
+
+```
+registry: 4 lending-cdp deployments
+   aave-v3      mainnet  QmcXE5QVcBcvcaJddPxd8mFs6W9xt7STmwfgguoiM6ddAd
+   compound-v2  mainnet  QmZ2LVu8b1J9F92CDRnDKX4CcM21zSNjb9ogdRfMxVCFrg
+   compound-v3  mainnet  QmNrQoow7pjM3biRnnhzeCaDYhuEbDyjKCpFeNv2oGXnuK
+   compound-v3  polygon  QmSpf6KX1qpKPkMdQWwRee3uyztNbsNn4NQv3Jaf6AC3z7
+
+ONE query function, ALL of them, no protocol branch:
+  aave-v3      block 25927250   pinned-match:true   dep:0 bor:0 rep:0 wd:0
+  compound-v2  block 25927250   pinned-match:true   dep:5 bor:4 rep:3 wd:5
+  compound-v3  block 25927250   pinned-match:true   dep:0 bor:0 rep:0 wd:0
+  compound-v3  block 93400300   pinned-match:true   dep:0 bor:0 rep:0 wd:0
+
+normalized -> 17 EvidenceEvents
+persist #1: created=17 skipped=0
+persist #2: created=0  skipped=17   <- idempotent on real data
+```
+
+Two protocols across two chains answered by one function, every response
+provenance-checked against its pinned deployment, normalized into one shape, and
+written idempotently.
+
+### Picking deployment IDs is not a copy-paste job
+
+**Most subgraphs named "Aave V3 <chain>" are NOT standardized subgraphs.** The
+first candidate tried — `QmXZ53Kzz3L2LvvbGve2ebtLKWMhjjB1a3U2jnUj2YwGCW`, Aave
+V3 Base, 8.9M queries in 30 days, 100% synced — is live and healthy and
+implements **Aave's own schema**: `protocols`, `pools`, `supplies`,
+`redeemUnderlyings`, `liquidationCalls`. Of the standardized entities our
+lending-cdp module queries, only `borrows` and `repays` exist. The queries
+would have failed at runtime.
+
+Every id in `prisma/seed.ts` was therefore **schema-introspected through the
+gateway before being added** and confirmed to implement the family it claims.
+Do not add a row from an Explorer listing alone.
+
+This is also the deployment registry earning its keep: the fix was five rows in
+a seed file, not a line of code.
+
+---
+
 ## 🟡 Phase 1 — What's left (only Suganthan can do these)
 
 | #   | Item                                                      | Status                                                     |

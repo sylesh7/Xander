@@ -29,9 +29,67 @@ import { logger } from '../src/lib/logger.js'
  *     seed step fails loudly if they don't.
  *   - PolicyVersion (Phase 8) — snapshot of the above, exactly one row active.
  */
+/**
+ * Deployment registry rows — Phase 4.
+ *
+ * Every deployment id below was verified live on 2026-09-07: fetched through
+ * the gateway, schema introspected, and confirmed to implement the standardized
+ * schema its `schemaFamily` claims. Do not add a row from a Graph Explorer
+ * listing alone — plenty of subgraphs named "Aave V3 <chain>" implement Aave's
+ * OWN schema (protocols/pools/supplies/redeemUnderlyings) rather than the
+ * standardized one (lendingProtocols/markets/positions/deposits/withdraws), and
+ * the two are not interchangeable.
+ *
+ * Aave V3 Ethereum and Compound V3 Ethereum are both lending-cdp on purpose:
+ * two different protocols answering one query function with no protocol branch
+ * is the Phase 4 acceptance test.
+ */
+const DEPLOYMENTS = [
+  {
+    protocol: 'aave-v3',
+    chain: 'mainnet',
+    schemaFamily: 'lending-cdp',
+    deploymentId: 'QmcXE5QVcBcvcaJddPxd8mFs6W9xt7STmwfgguoiM6ddAd',
+  },
+  {
+    protocol: 'compound-v3',
+    chain: 'mainnet',
+    schemaFamily: 'lending-cdp',
+    deploymentId: 'QmNrQoow7pjM3biRnnhzeCaDYhuEbDyjKCpFeNv2oGXnuK',
+  },
+  {
+    protocol: 'compound-v2',
+    chain: 'mainnet',
+    schemaFamily: 'lending-cdp',
+    deploymentId: 'QmZ2LVu8b1J9F92CDRnDKX4CcM21zSNjb9ogdRfMxVCFrg',
+  },
+  {
+    protocol: 'compound-v3',
+    chain: 'polygon',
+    schemaFamily: 'lending-cdp',
+    deploymentId: 'QmSpf6KX1qpKPkMdQWwRee3uyztNbsNn4NQv3Jaf6AC3z7',
+  },
+  {
+    protocol: 'uniswap-v3',
+    chain: 'mainnet',
+    schemaFamily: 'dex-amm',
+    deploymentId: 'Qmc9TiHtLDgsbgqvyfXKiyndZDnjWdrfdvETgarZbg3StY',
+  },
+] as const
+
 async function seedSuganthan(): Promise<void> {
-  logger.info('[seed:suganthan] skeleton — populated in Phase 12')
-  // TODO Phase 4:  DeploymentRegistryEntry rows for the 2-3 chosen protocols
+  for (const d of DEPLOYMENTS) {
+    // Keyed on deploymentId so re-seeding is idempotent and an operator's
+    // manual `enabled: false` is not silently undone.
+    const existing = await prisma.deploymentRegistryEntry.findFirst({
+      where: { deploymentId: d.deploymentId },
+    })
+    if (existing) continue
+    await prisma.deploymentRegistryEntry.create({ data: d })
+  }
+  const count = await prisma.deploymentRegistryEntry.count()
+  logger.info({ deployments: count }, '[seed:suganthan] deployment registry seeded')
+
   // TODO Phase 8:  RiskWeight, RiskThreshold, initial active PolicyVersion
   // TODO Phase 12: scenario A (clean wallet) + scenario B (coordinated cluster)
   //                using FIXTURE_CLEAN_WALLET / FIXTURE_CLUSTERED_WALLET from
