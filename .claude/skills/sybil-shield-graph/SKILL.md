@@ -213,8 +213,36 @@ Three things the bridge must do (Phase 10):
 3. **Handle reorgs** — the sink's "undo" signal must roll back the corresponding
    `EvidenceEvent` rows. Not optional.
 
-Firehose endpoints are third-party-hosted (e.g. Pinax) and **do move** — confirm
-the current URL rather than trusting a stale value in `.env`.
+### Endpoints — verified reachable 2026-09-08
+
+gRPC `host:port`. **No `https://` prefix** — that is the most common mistake and
+the resulting failure is opaque.
+
+| Chain | Pinax | StreamingFast |
+|---|---|---|
+| Ethereum mainnet | `eth.substreams.pinax.network:443` | `mainnet.eth.streamingfast.io:443` |
+| Ethereum Sepolia | `sepolia.substreams.pinax.network:443` | `sepolia.eth.streamingfast.io:443` |
+| Base | `base.substreams.pinax.network:443` | `base-mainnet.streamingfast.io:443` |
+| Polygon | `polygon.substreams.pinax.network:443` | `polygon.streamingfast.io:443` |
+| Arbitrum One | `arbone.substreams.pinax.network:443` | `arb-one.streamingfast.io:443` |
+| BSC | `bsc.substreams.pinax.network:443` | `bnb.streamingfast.io:443` |
+| Optimism | — | `mainnet.optimism.streamingfast.io:443` |
+
+**Holesky is sunset** — `holesky.substreams.pinax.network` no longer resolves.
+Do not re-add it.
+
+**The Token API JWT already authenticates Substreams.** It carries
+`substreams_plan_tier: FREE` with `SUBSTREAMS_MAX_REQUESTS: 2` and
+`SUBSTREAMS_PARALLEL_JOBS: 5`, and its issuer is `dfuse.io` — the same
+Pinax-operated identity behind thegraph.market. No second credential is needed.
+The CLI reads `SUBSTREAMS_API_TOKEN`, or takes `--substreams-api-token`.
+
+Keys, if a new one is ever needed: <https://thegraph.market/>,
+<https://app.pinax.network/>, <https://app.streamingfast.io/>.
+
+Endpoints are configured in `SUBSTREAMS_ENDPOINTS` as `network=host:port` pairs
+and resolved by `src/graph/substreams/endpoints.ts`. They are third-party-hosted
+and **do move** — never bake a hostname into source.
 
 ## Subgraph MCP (Sylesh Phase 15)
 

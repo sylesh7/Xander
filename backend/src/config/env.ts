@@ -88,7 +88,17 @@ const envSchema = z.object({
   // --- Substreams (Phases 9-10) -------------------------------------------
   // Locked P0 per Section 0.6 — do not feature-flag this off.
   ENABLE_SUBSTREAMS: boolFromString.default('true'),
+  /**
+   * Single-endpoint fallback, kept for compatibility with Section 0.6 of the
+   * spec. SUBSTREAMS_ENDPOINTS below is the multi-chain form and wins.
+   */
   SUBSTREAMS_ENDPOINT: optionalStr(),
+  /**
+   * `network=host:port` pairs, comma-separated. gRPC — no https:// prefix.
+   * Third-party hosted and known to move, so this is config, not code.
+   */
+  SUBSTREAMS_ENDPOINTS: z.string().default(''),
+  SUBSTREAMS_DEFAULT_NETWORK: z.string().default('mainnet'),
   SUBSTREAMS_WEBHOOK_SECRET: optionalStr(),
 
   // --- Risk engine tunables (Phases 6, 7, 11) -----------------------------
