@@ -15,6 +15,13 @@ import { prisma } from '../src/lib/prisma.js'
 import { logger } from '../src/lib/logger.js'
 import { activatePolicyVersion } from '../src/risk/policy.js'
 import { RESERVE_WEIGHT } from '../src/risk/scoring.js'
+import { persistEvidenceEvents } from '../src/evidence/repository.js'
+import type { NormalizedEvidenceEvent } from '../src/evidence/types.js'
+import {
+  FIXTURE_CLEAN_WALLET,
+  FIXTURE_CLUSTERED_WALLET,
+  recomputeClusterForCandidates,
+} from '../src/interfaces/evidence-risk-api.js'
 
 /**
  * SUGANTHAN — Phase 12.1.
@@ -154,11 +161,144 @@ async function seedSuganthan(): Promise<void> {
   logger.info({ deployments: count }, '[seed:suganthan] deployment registry seeded')
 
   await seedPolicy()
+  await seedFixtureScenarios()
+}
 
-  // TODO Phase 12: scenario A (clean wallet) + scenario B (coordinated cluster)
-  //                using FIXTURE_CLEAN_WALLET / FIXTURE_CLUSTERED_WALLET from
-  //                src/interfaces/stub-fixtures.ts so the addresses stay stable
-  //                across the stub -> real transition.
+/**
+ * Phase 12.1 fixture scenarios — the acceptance test for the whole track:
+ *
+ *   A. FIXTURE_CLEAN_WALLET alone     -> score near 0    -> resolves ALLOW
+ *   B. FIXTURE_CLUSTERED_WALLET + 4   -> shared funder, tight window,
+ *      more wallets                      identical protocol path -> CHALLENGE+
+ *
+ * sourceType is 'token-api' with deploymentId: null rather than 'substreams'.
+ * That is a deliberate choice, not an arbitrary label: the freshness guard
+ * (Phase 11) treats 'substreams' evidence as needing a live SubstreamsCursor
+ * row for the chain it claims, which synthetic seed data has no business
+ * creating — a fixture wallet would resolve PENDING_REVIEW forever, defeating
+ * the entire point of a fixture that is supposed to exercise the OK path.
+ * 'token-api' evidence is judged purely on EvidenceEvent.createdAt recency,
+ * which seeding satisfies automatically.
+ *
+ * Idempotent via the same @@unique([transactionHash, eventType, wallet,
+ * sourceId]) constraint Phase 5 already enforces — re-running the seed is a
+ * no-op on the events themselves. Re-seeding is NOT re-run for the cluster
+ * formation step below (see the guard there).
+ */
+async function seedFixtureScenarios(): Promise<void> {
+  const t0 = Date.now()
+  const at = (minutesFromT0: number) => new Date(t0 + minutesFromT0 * 60_000)
+
+  const cleanEvents: NormalizedEvidenceEvent[] = [
+    {
+      chain: 'seed',
+      wallet: FIXTURE_CLEAN_WALLET,
+      counterparty: '0x00000000000000000000000000000000fund3d',
+      eventType: 'transfer',
+      protocol: null,
+      protocolType: null,
+      amount: '1000000000000000000',
+      timestamp: at(0),
+      blockNumber: 1_000_000n,
+      transactionHash: '0xseedcleantx1',
+      sourceType: 'token-api',
+      sourceId: '0xseedcleantx1-0',
+      deploymentId: null,
+    },
+    {
+      chain: 'seed',
+      wallet: FIXTURE_CLEAN_WALLET,
+      counterparty: '0x00000000000000000000000000000000venue1',
+      eventType: 'deposit',
+      protocol: 'seed-protocol',
+      protocolType: 'lending-cdp',
+      amount: '500000000000000000',
+      timestamp: at(60 * 24 * 30), // a month later — no coordinated timing
+      blockNumber: 1_050_000n,
+      transactionHash: '0xseedcleantx2',
+      sourceType: 'token-api',
+      sourceId: '0xseedcleantx2-0',
+      deploymentId: null,
+    },
+  ]
+
+  // 5 wallets: FIXTURE_CLUSTERED_WALLET plus 4 synthetic mates, one shared
+  // funder, all funded within minutes, identical deposit->borrow->repay path.
+  const clusterMates = [
+    FIXTURE_CLUSTERED_WALLET,
+    '0x00000000000000000000000000000000c1058',
+    '0x00000000000000000000000000000000c1059',
+    '0x00000000000000000000000000000000c105a',
+    '0x00000000000000000000000000000000c105b',
+  ]
+  const sharedFunder = '0x00000000000000000000000000000000ring0f'
+  const sharedMarket = '0x00000000000000000000000000000000market'
+
+  const clusterEvents: NormalizedEvidenceEvent[] = clusterMates.flatMap((wallet, i) => [
+    {
+      chain: 'seed',
+      wallet,
+      counterparty: sharedFunder,
+      eventType: 'transfer',
+      protocol: null,
+      protocolType: null,
+      amount: '2000000000000000000',
+      timestamp: at(i), // minutes apart — a tight window
+      blockNumber: 2_000_000n + BigInt(i),
+      transactionHash: `0xseedring${i}a`,
+      sourceType: 'token-api',
+      sourceId: `0xseedring${i}a-0`,
+      deploymentId: null,
+    },
+    {
+      chain: 'seed',
+      wallet,
+      counterparty: sharedMarket,
+      eventType: 'deposit',
+      protocol: 'seed-protocol',
+      protocolType: 'lending-cdp',
+      amount: '1000000000000000000',
+      timestamp: at(60 + i),
+      blockNumber: 2_100_000n + BigInt(i),
+      transactionHash: `0xseedring${i}b`,
+      sourceType: 'token-api',
+      sourceId: `0xseedring${i}b-0`,
+      deploymentId: null,
+    },
+    {
+      chain: 'seed',
+      wallet,
+      counterparty: sharedMarket,
+      eventType: 'borrow',
+      protocol: 'seed-protocol',
+      protocolType: 'lending-cdp',
+      amount: '500000000000000000',
+      timestamp: at(70 + i),
+      blockNumber: 2_200_000n + BigInt(i),
+      transactionHash: `0xseedring${i}c`,
+      sourceType: 'token-api',
+      sourceId: `0xseedring${i}c-0`,
+      deploymentId: null,
+    },
+  ])
+
+  const { created } = await persistEvidenceEvents([...cleanEvents, ...clusterEvents])
+  logger.info(
+    { created, cleanWallet: FIXTURE_CLEAN_WALLET, clusterWallets: clusterMates.length },
+    '[seed:suganthan] fixture evidence seeded',
+  )
+
+  // Form the actual cluster so getOrComputeClusterRisk(FIXTURE_CLUSTERED_WALLET)
+  // finds a real, persisted Cluster rather than scoring the wallet alone.
+  // Guarded on the Wallet row already having a cluster so re-running the seed
+  // does not create a second Cluster pointing at the same wallets.
+  const already = await prisma.wallet.findUnique({ where: { address: FIXTURE_CLUSTERED_WALLET } })
+  if (already?.clusterId) {
+    logger.info('[seed:suganthan] fixture cluster already formed, skipping')
+    return
+  }
+  const clusterIds = await recomputeClusterForCandidates(clusterMates)
+  logger.info({ clusterIds }, '[seed:suganthan] fixture cluster formed')
 }
 
 /**
