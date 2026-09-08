@@ -27,6 +27,20 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 
 **ALL 12 PHASES DONE. 212/212 tests passing. The interface Sylesh imports from does real work.**
 
+### Extra, non-spec deliverable: `xander` Subgraph Studio subgraph
+
+Not one of the 25 phases, not required by either spec — built on explicit
+request as a directly-queryable Subgraph Studio artifact alongside the
+Token API / Standardized Subgraphs / Substreams work above, so all four
+Graph products have a real, live deployment behind them. Details, commands
+and the two post-deploy fixes are in `EVIDENCE-RISK-INTERFACE.md` §11.
+
+| Item      | Status                                                                 |
+| --------- | ----------------------------------------------------------------------- |
+| Deployed  | ✅ `https://thegraph.com/studio/subgraph/xander`, network `base-sepolia` |
+| Synced    | ✅ Verified live at head, real `Transfer` events returned                |
+| Sylesh needs this | ❌ No — outside the locked interface, informational only          |
+
 ---
 
 ## ✅ Phase 2 — Done
