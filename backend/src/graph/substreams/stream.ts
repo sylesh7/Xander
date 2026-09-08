@@ -47,7 +47,7 @@ import { logger } from '../../lib/logger.js'
 import { normalizeSubstreamsEvent, type SubstreamsEventInput } from '../../evidence/normalizer.js'
 import { persistEvidenceEvent, rollbackEvidenceAboveBlock } from '../../evidence/repository.js'
 import { enqueueRiskInvalidation } from './invalidation-queue.js'
-import { getCursor, writeCursor } from './cursor.js'
+import { getCursorInfo, writeCursor } from './cursor.js'
 import { resolveEndpoint } from './endpoints.js'
 
 const MODULE_NAME = 'map_funding_transfers'
@@ -266,14 +266,30 @@ async function runOnce(
     jsonOptions: { typeRegistry: registry },
   })
 
-  const cursor = await getCursor(chain, MODULE_NAME)
+  const cursorInfo = await getCursorInfo(chain, MODULE_NAME)
+
+  // Anchor startBlockNum to the SAVED CURSOR's block when one exists, not to
+  // the caller's --start. createRequest computes a relative `+N` stopBlockNum
+  // FROM startBlockNum — that's the SDK's own documented behavior, not
+  // something this code controls — so if startBlockNum stays pinned to a
+  // stale --start while startCursor has already advanced past it, a caller's
+  // `--stop +N` can land behind where the stream actually resumes and the
+  // server rejects the whole request outright.
+  //
+  // Found for real, not hypothesized: a genuine `kill -9` mid-stream followed
+  // by a restart with `--stop +10` against the original --start reproduced
+  // exactly this rejection — "StartCursor ... is after StopBlockNum ...".
+  // startCursor still governs where streaming ACTUALLY resumes; this only
+  // fixes what the relative math is computed relative to.
+  const effectiveStartBlock = cursorInfo?.blockNumber ?? opts.startBlock ?? 0n
+
   const request = createRequest({
     substreamPackage: pkg,
     outputModule: MODULE_NAME,
     productionMode: true,
-    startBlockNum: opts.startBlock ?? 0n,
+    startBlockNum: effectiveStartBlock,
     stopBlockNum: opts.stopBlock ?? 0,
-    startCursor: cursor,
+    startCursor: cursorInfo?.cursor,
   })
 
   let blockCount = 0

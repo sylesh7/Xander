@@ -35,6 +35,27 @@ export async function getCursor(chain: string, moduleName: string): Promise<stri
 }
 
 /**
+ * The persisted cursor AND the block it was captured at, in one read.
+ *
+ * `getCursor` alone is enough for most callers, but a caller building a
+ * request with a RELATIVE stop block (`+N`) needs the block too — see
+ * `runOnce` in `stream.ts` for why: `createRequest`'s `stopBlockNum` computes
+ * `+N` relative to `startBlockNum`, not relative to wherever `startCursor`
+ * actually resumes from. Anchoring `startBlockNum` to this block, rather than
+ * to whatever `--start` the caller originally typed, is what keeps that math
+ * meaningful across a restart.
+ */
+export async function getCursorInfo(
+  chain: string,
+  moduleName: string,
+): Promise<{ cursor: string; blockNumber: bigint } | undefined> {
+  const row = await prisma.substreamsCursor.findUnique({
+    where: { chain_moduleName: { chain, moduleName } },
+  })
+  return row ? { cursor: row.cursor, blockNumber: row.blockNumber } : undefined
+}
+
+/**
  * Persists a cursor. Call this ONLY after the evidence it corresponds to has
  * been durably written (Rule 1) — never speculatively, never before.
  */

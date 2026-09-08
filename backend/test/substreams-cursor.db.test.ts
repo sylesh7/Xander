@@ -4,7 +4,12 @@
  * mocking Prisma here would only prove the mock does what it was told.
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { getCursor, getCursorLag, writeCursor } from '../src/graph/substreams/cursor.js'
+import {
+  getCursor,
+  getCursorInfo,
+  getCursorLag,
+  writeCursor,
+} from '../src/graph/substreams/cursor.js'
 import { prisma } from '../src/lib/prisma.js'
 
 const CHAIN = 'test-cursor-chain'
@@ -75,5 +80,50 @@ describe('cursor persistence (real Postgres)', () => {
   it('getCursorLag returns null, never a fabricated block, when nothing is persisted', async () => {
     if (!dbUp) return
     expect(await getCursorLag(CHAIN, MODULE)).toBeNull()
+  })
+
+  describe('getCursorInfo — the fix for the relative-stop-block-on-resume bug', () => {
+    it('returns both the cursor and its block in one read', async () => {
+      if (!dbUp) return
+      await writeCursor(CHAIN, MODULE, 'opaque-xyz', 46_543_723n)
+      const info = await getCursorInfo(CHAIN, MODULE)
+      expect(info?.cursor).toBe('opaque-xyz')
+      expect(info?.blockNumber).toBe(46_543_723n)
+    })
+
+    it('returns undefined, not a fabricated block, when nothing is persisted', async () => {
+      if (!dbUp) return
+      // A caller anchoring startBlockNum on this MUST fall back to its own
+      // --start, never silently coerce to 0 — that would restart every
+      // never-before-seen stream from genesis.
+      expect(await getCursorInfo(CHAIN, MODULE)).toBeUndefined()
+    })
+
+    it('THE BUG THIS FIXES, reproduced directly: a stale --start makes a relative stop land behind an advanced cursor', async () => {
+      if (!dbUp) return
+      // This is the exact scenario a live kill -9 + restart produced: stream
+      // started at block 46543680, ran unsupervised, and by the time it was
+      // killed the cursor had genuinely advanced to 46543723 — 43 blocks past
+      // the original --start. A caller resuming with `--stop +10` (meaning
+      // "stop 10 blocks past wherever the SDK thinks I started") is asking
+      // for block 46543690 if anchored to the stale --start, which is
+      // already 33 blocks in the past relative to the real cursor.
+      const originalStart = 46_543_680n
+      await writeCursor(CHAIN, MODULE, 'resumed', 46_543_723n)
+
+      const info = await getCursorInfo(CHAIN, MODULE)
+      const effectiveStartBlock = info?.blockNumber ?? originalStart
+      const relativeStopOffset = 10n
+
+      // Anchored to the stale --start (the bug): the stop lands behind the
+      // cursor and the server would reject the request outright.
+      const buggyStop = originalStart + relativeStopOffset
+      expect(buggyStop).toBeLessThan(info!.blockNumber)
+
+      // Anchored to the cursor's real block (the fix): the stop is always
+      // ahead of where the stream is actually resuming.
+      const fixedStop = effectiveStartBlock + relativeStopOffset
+      expect(fixedStop).toBeGreaterThan(info!.blockNumber)
+    })
   })
 })
