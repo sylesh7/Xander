@@ -93,3 +93,163 @@ Sybil Shield exists to fix the part of this that's actually fixable in a hackath
        ▼                   ▼
             final decision + full evidence trail
 ```
+
+## Claim flow — sequence diagram
+
+```mermaid
+sequenceDiagram
+    actor User as Wallet
+    participant API as Claim API
+    participant Graph as The Graph<br/>(Token API / Subgraphs / Substreams)
+    participant Risk as Risk Engine
+    participant MCP as Subgraph MCP<br/>investigation agent
+    participant World as World ID<br/>Selfie Check
+
+    User->>API: POST /claim { wallet, campaignId }
+    API->>Graph: fetch/refresh wallet evidence
+    Graph-->>API: transfers, deposits, borrows... + block/deployment provenance
+    API->>Risk: score(wallet, evidenceWindow)
+    Risk->>Risk: cluster candidates, compute 5 features,<br/>weighted sum, map to band
+
+    alt score is ALLOW or BLOCK
+        Risk-->>API: decision + evidence trail
+        API-->>User: 200 { decision, evidence }
+    else score is CHALLENGE
+        Risk-->>API: CHALLENGE, clusterId
+        opt cluster flagged
+            API->>MCP: investigate(clusterId, wallets)
+            MCP->>Graph: schema-aware follow-up queries
+            Graph-->>MCP: query results (checked against tool trace)
+            MCP-->>API: evidence report (rejected if uncited)
+        end
+        API-->>User: 202 { decision: CHALLENGE, verificationChallenge }
+        User->>API: POST /world/rp-signature { action }
+        API-->>User: { sig, nonce, expiresAt }
+        User->>World: open IDKit — Selfie Check (signal = wallet+claim)
+        World-->>User: proof
+        User->>API: POST /claim/:id/verify { rp_id, idkitResponse }
+        API->>World: POST /api/v4/verify/{rp_id}
+        World-->>API: verified proof (nullifier, signal_hash)
+        API->>API: check nullifier not reused,<br/>signal_hash matches this wallet+claim
+        API-->>User: final decision: ALLOW or BLOCK
+    end
+
+    Note over API,Graph: any stale/failed Graph query at any step<br/>→ PENDING_REVIEW, never a silent ALLOW
+```
+
+## The Graph — how each product is used
+
+The Graph is the evidence layer for the entire product. Four of its products are composed into one pipeline, driven by **one schema-family query pattern reused across every protocol supported** — that reuse, not any single API call, is the actual composability claim.
+
+| Product | Role in Sybil Shield | What it answers |
+|---|---|---|
+| **Token API** | Historical wallet-level evidence (REST) | Who funded this wallet, when, from how many sources, when did it first appear on-chain |
+| **Standardized Subgraphs** | Cross-protocol DeFi behavior (GraphQL, one query per schema family — Messari lending-cdp, dex-amm, yield-aggregator) | Has this wallet borrowed, supplied, swapped, or farmed — across *any* protocol tagged into that schema family, with zero protocol-specific code |
+| **Substreams** | Real-time streaming ingestion (Rust/WASM module → gRPC) | New funding transfers and claim events, as they happen, with cursor-resumable, reorg-safe delivery |
+| **Subgraph MCP** | AI investigation agent, via Mastra | When a cluster is flagged, what shared behavior actually explains it — with every claim checked against the agent's own real tool-call trace before being trusted |
+
+The `DeploymentRegistryEntry` table is the single place "which protocols we support" lives — adding a new lending protocol is an `INSERT`, never a code change. The same `lending-cdp` query module already runs, unmodified, against every deployment tagged into that schema family — that live "add a protocol as data, not code" moment is the actual demo evidence for the composability track, not just a design paragraph.
+
+**A fifth Graph product is deployed as a standalone, directly-queryable artifact** alongside the pipeline above: a real **Subgraph Studio** subgraph (`xander`), indexing live Base Sepolia USDC `Transfer` events, deployed and synced end-to-end — see `backend/docs/EVIDENCE-RISK-INTERFACE.md` §11 for its full build/query story.
+
+## World ID — Selfie Check as a selective signal
+
+World ID Selfie Check (Beta) is used exactly once in this product: as the escalation step for a wallet whose risk score has already crossed a real, auditable threshold. It is never shown to a low-risk wallet, and it never decides anything on its own — it adds one more signal to a decision the risk engine already made.
+
+- **RP-signature step, backend-only.** Every verification request is signed server-side (`signRequest`, using a secret `signing_key` that never reaches the client) before the client can even open IDKit.
+- **Wallet + claim binding.** The proof's `signal` is bound to `hash(wallet, claimId)` — not the wallet alone — so a completed proof can't be lifted from one flagged claim onto a different one by the same wallet, or onto a different wallet entirely.
+- **Replay protection.** Every proof's `nullifier` (a 256-bit integer) is stored and checked for reuse against `(nullifier, action)` before a claim is allowed to resolve.
+- **Fail closed.** A timed-out or invalid World verification never falls through to `ALLOW` — it holds the claim exactly like a failed Graph query does.
+
+## Architecture
+
+Two people, two tracks, one shared Postgres schema and one locked interface between them:
+
+- **Evidence & Risk Engine** (this repo's `backend/`, Phases 1–12) — Token API, Standardized Subgraphs, Substreams, evidence normalization, clustering, scoring, provenance/freshness guarantees. Owner: Suganthan.
+- **Decision, Escalation & API** (Phases 13–25) — Subgraph MCP investigation agent, World ID Selfie Check integration, policy engine, evidence receipts, the public Claim Gate API surface. Owner: Sylesh.
+
+The two tracks meet at exactly one seam, documented in `backend/docs/EVIDENCE-RISK-INTERFACE.md`:
+
+```ts
+getOrComputeClusterRisk(wallet): Promise<ClusterRisk>
+refreshWalletEvidence(wallet): Promise<void>
+// + the `risk-invalidation` BullMQ queue
+```
+
+## Tech stack
+
+| Layer | Technology |
+|---|---|
+| Runtime | Node.js 20+, TypeScript (strict) |
+| API | Express + `zod` |
+| Database | PostgreSQL + Prisma |
+| Queue/cache | Redis + BullMQ |
+| Graph — historical data | Token API (REST, thin typed `fetch` wrapper — no official SDK exists) |
+| Graph — cross-protocol data | Standardized Subgraphs via `graphql-request` against the gateway |
+| Graph — real-time | Substreams — Rust/WASM module, `@substreams/core` + `@connectrpc/connect-node` Node bridge |
+| Graph — AI investigation | Subgraph MCP via Mastra's `@mastra/mcp` |
+| Identity escalation | World ID 4.0 Selfie Check via IDKit (`@worldcoin/idkit-core`) |
+| Testing | vitest + supertest |
+| Observability | pino structured logging + a provenance-aware `/health` endpoint |
+
+## Repository layout
+
+```text
+Xander/
+├── Backend-Suganthan.md         # Evidence & Risk Engine spec (Phases 1-12)
+├── Backend-Sylesh.md            # Decision/Escalation/API + World ID spec (Phases 13-25)
+├── backend/                     # the shared backend project
+│   ├── src/
+│   │   ├── graph/               # Token API, Standardized Subgraphs, Substreams clients
+│   │   ├── evidence/            # normalizer + repository
+│   │   ├── behavior-graph/      # clustering
+│   │   ├── risk/                # feature extractors, scoring, policy
+│   │   ├── provenance/          # freshness guard + /health
+│   │   └── interfaces/          # the Suganthan -> Sylesh seam
+│   ├── prisma/schema.prisma     # the shared, locked schema
+│   ├── substreams/              # the real Rust/WASM Substreams module
+│   ├── docs/                    # EVIDENCE-RISK-INTERFACE.md, PROGRESS-SUGANTHAN.md, RISK-MODEL.md
+│   └── test/
+└── xander-subgraph/              # standalone Subgraph Studio deployment (Base Sepolia USDC)
+```
+
+## Build status
+
+**Evidence & Risk Engine (Phases 1–12): done, verified live, not from memory.**
+
+- 212/212 tests passing
+- Real Token API, Standardized Subgraphs (4+ live deployments across 2 chains), and Substreams (live Base Sepolia stream, cursor-resume and reorg both proven) integrations
+- The Suganthan → Sylesh interface seam does real work end to end: a coordinated 5-wallet cluster scores `BLOCK` (≈0.85), a clean wallet scores `ALLOW`, an unknown wallet always resolves `PENDING_REVIEW` — never a silent, confident `ALLOW`
+- A live, synced Subgraph Studio deployment (`xander`, Base Sepolia) indexing real USDC `Transfer` events
+
+Full detail: `backend/docs/PROGRESS-SUGANTHAN.md`.
+
+**Decision, Escalation & API (Phases 13–25): specified, in progress.** Subgraph MCP investigation agent, World ID Selfie Check integration, policy engine, and the public Claim Gate API surface — owned by Sylesh, per `Backend-Sylesh.md`.
+
+## Running it locally
+
+```bash
+cd backend
+cp .env.example .env      # fill in credentials as they arrive
+npm install
+npm run infra:up          # postgres:16 + redis:7
+npm run db:migrate
+npm run db:seed
+npm run dev                # http://localhost:3000/health -> { ok: true, provenance: {...} }
+npm run typecheck && npm run lint && npm test
+```
+
+Live-verification commands (real credentials, real data, not from memory):
+
+```bash
+npm run check:graph        # Token API + Standardized Subgraphs + Substreams, live
+npm run check:verdict      # full pipeline against real evidence -> ALLOW/CHALLENGE/BLOCK
+npm run substreams:pack && npm run substreams:run   # live Base Sepolia stream
+```
+
+## Team
+
+| Track | Owner |
+|---|---|
+| Evidence & Risk Engine (Phases 1–12) | Suganthan |
+| Decision, Escalation & API + World ID (Phases 13–25) | Sylesh |
