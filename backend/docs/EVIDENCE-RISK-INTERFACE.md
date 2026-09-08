@@ -110,32 +110,95 @@ Because the payload can be either kind of id, the consumer must handle both. A
 
 ## 5. Current status — read this before you build against it
 
-**`getOrComputeClusterRisk` and `refreshWalletEvidence` are typed stubs today.**
-The **signatures and the queue contract above are final** — build against them
-now. The bodies land across Phases 3–11.
+**The stub is gone. Both functions do real work, verified live.** Everything
+underneath — Phases 3 through 11 — is real, and `getOrComputeClusterRisk` /
+`refreshWalletEvidence` now call into it for real: real Postgres lookups, real
+Token API calls, real Standardized Subgraph queries, real scoring against the
+active `PolicyVersion`.
 
-Stub behaviour:
+**`getOrComputeClusterRisk(wallet)`:**
 
-| Input                                        | Returns                                                                                                      |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `0x0000000000000000000000000000000000000c1e` | `status: 'OK'`, `riskScore: 0.04`, `clusterId: null` — exercises your **ALLOW** path                         |
-| `0x00000000000000000000000000000000000c1057` | `status: 'OK'`, `riskScore: 0.72`, `clusterId: 'stub-cluster-001'` — exercises your **CHALLENGE/BLOCK** path |
-| anything else                                | `status: 'PENDING_REVIEW'` — exercises your **hold** path                                                    |
+1. Looks up the wallet's existing `Cluster` membership (read-only — see §6 for
+   how a cluster actually gets formed).
+2. Runs the Phase 11 freshness guard over that wallet set's evidence.
+3. If not fresh, returns `status: 'PENDING_REVIEW'` immediately — no score is
+   computed. This includes a wallet with **no evidence at all**, which is
+   the case most likely to bite an integration: it is tempting to assume
+   "unknown wallet" means "safe," and this deliberately refuses that
+   assumption. There is a test named exactly for this
+   (`THE MOST DANGEROUS CASE` in `test/evidence-risk-api.db.test.ts`).
+4. Otherwise scores the cluster (or the lone wallet, if unclustered) and
+   returns `status: 'OK'` with the real score, features, sources and
+   `policyVersion`.
+5. Any internal failure — no active policy, a database error, anything —
+   also resolves `PENDING_REVIEW` rather than propagating an exception a
+   caller might not catch. A thrown error must never be the thing standing
+   between a caller and a silent `ALLOW`.
 
-Both fixture addresses are exported from `src/interfaces/stub-fixtures.ts` as
-`FIXTURE_CLEAN_WALLET` and `FIXTURE_CLUSTERED_WALLET`, and Phase 12 seeds the
-same addresses for real — so tests written now keep passing after the stub is
-deleted. Import the constants rather than pasting the literals.
+**`refreshWalletEvidence(wallet)`** now actually fetches: Token API inbound
+transfers, plus that wallet's activity across every enabled Standardized
+Subgraph deployment in every schema family (lending-cdp, dex-amm,
+yield-aggregator), normalized and persisted idempotently. One deployment
+failing does not abort the others — errors are collected and logged, not
+thrown, so a rate-limited protocol doesn't take down evidence you could
+otherwise have gotten.
 
-`refreshWalletEvidence` is currently a no-op that logs a warning.
+Both fixture addresses still work, now as **real seeded data** rather than
+hardcoded responses — exactly as promised when the stub shipped. They are
+exported from `src/interfaces/stub-fixtures.ts` as `FIXTURE_CLEAN_WALLET` and
+`FIXTURE_CLUSTERED_WALLET`; import the constants rather than pasting the
+literals. `npm run db:seed` seeds `FIXTURE_CLEAN_WALLET` with clean,
+uncorrelated evidence (resolves `ALLOW`) and `FIXTURE_CLUSTERED_WALLET` plus
+four synthetic cluster-mates sharing a funder in a tight window (resolves
+`BLOCK`, score ≈0.85) — and actually **persists the cluster**, so
+`getOrComputeClusterRisk` on any of the five returns the same real
+`clusterId` and the same score.
+
+Verified live, 2026-09-08:
+
+```
+FIXTURE_CLEAN_WALLET      -> status OK,  riskScore 0,      clusterId null
+FIXTURE_CLUSTERED_WALLET  -> status OK,  riskScore 0.8465, clusterId <real cuid>, BLOCK band
+unknown wallet             -> status PENDING_REVIEW, riskScore 0 (never read this as ALLOW)
+refreshWalletEvidence(vitalik.eth) -> 200 real events persisted, 0 errors
+```
 
 ---
 
-## 6. What Sylesh needs from Suganthan, and when
+## 6. Clustering is not automatic — read this before wiring up claim intake
+
+`getOrComputeClusterRisk(wallet)` **looks up** whatever cluster a prior
+clustering pass already formed. It does not, and architecturally cannot, form
+a _new_ cluster on the fly — it takes one wallet, not a campaign, and Phase 6's
+clustering needs the full candidate set ("every wallet that interacted with a
+given campaign in the current window"). Only your `Claim` table knows that set.
+
+A third export exists for this — **additive**, not one of the two locked
+functions above:
+
+```ts
+import { recomputeClusterForCandidates } from '../interfaces/evidence-risk-api.js'
+
+// wallets = every distinct wallet that has claimed against this campaignId
+const clusterIds: string[] = await recomputeClusterForCandidates(wallets)
+```
+
+Call it once per campaign, over that campaign's full wallet list, **before**
+scoring individual claims — the natural point is claim intake (your Phase 22),
+since only that code has the campaign context this function needs. Skipping
+this step doesn't break anything: `getOrComputeClusterRisk` still returns a
+correct, real score — it just scores each wallet alone (`clusterId: null`)
+because no cluster has been computed yet. Whether that is acceptable depends
+on your campaign's shape; for anything where coordinated claims are the actual
+threat model, call this first.
+
+---
+
+## 7. What Sylesh needs from Suganthan, and when
 
 | Sylesh needs                                         | To unblock                | Status                                                                                                                                                                                                                                  |
 | ---------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `evidence-risk-api.ts` signatures                    | Phases 14, 20, 22         | Available now (stubbed)                                                                                                                                                                                                                 |
+| `evidence-risk-api.ts`, real behaviour               | Phases 14, 20, 22         | ✅ **Available — real, not stubbed.** Verified live, see §5                                                                                                                                                                             |
 | `RISK_INVALIDATION_QUEUE` name + payload             | Phase 14 cache worker     | Available now                                                                                                                                                                                                                           |
 | Migrated Postgres with all 11 models                 | Phases 20, 21, 22         | Available now                                                                                                                                                                                                                           |
 | Redis running                                        | Phase 14                  | Available now                                                                                                                                                                                                                           |
@@ -144,26 +207,25 @@ deleted. Import the constants rather than pasting the literals.
 | Live queue producer                                  | Phase 14 end-to-end test  | ✅ **Available — verified live.** `enqueueRiskInvalidation` fires from the real Substreams stream after every block with new evidence; confirmed against real Redis with `bull:risk-invalidation:*` populated during a live mainnet run |
 | Seeded `RiskThreshold` / active `PolicyVersion` rows | Phase 20 policy bands     | ✅ Available — `PolicyVersion` `1.0` active in Postgres                                                                                                                                                                                 |
 
-**Every item on this list is now available.** The remaining gap is Phase 12:
-`getOrComputeClusterRisk`/`refreshWalletEvidence` are still the typed stub —
-everything underneath them (Phases 3–11) is real and live, but the seam
-Sylesh actually imports from has not been swapped over yet.
-Everything else Sylesh needs in order to _start_ is already in place.
+**Every item on this list is now available, including the seam itself.**
+Phases 1–12 are complete: `getOrComputeClusterRisk` and `refreshWalletEvidence`
+do real work, not stub responses. There is nothing left on this track blocking
+Sylesh from building against real data end to end.
 
 ---
 
-## 7. What Suganthan needs from Sylesh
+## 8. What Suganthan needs from Sylesh
 
-| Suganthan needs                                                                            | For                                              | Status  |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------ | ------- |
-| Confirmation the Phase 14 worker consumes `risk-invalidation` with the exact payload above | Phase 10.4 seam                                  | Pending |
-| `server.ts` ownership taken over                                                           | Phase 22 — it is a Phase 2 placeholder right now | Pending |
-| `/health` kept alive and extended                                                          | Phase 11 reports provenance data through it      | Pending |
-| World-side fixtures appended to `prisma/seed.ts`                                           | Phase 25 joint run                               | Pending |
+| Suganthan needs                                                                            | For                                                                   | Status             |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------ |
+| Confirmation the Phase 14 worker consumes `risk-invalidation` with the exact payload above | Phase 10.4 seam                                                       | Pending            |
+| `server.ts` ownership taken over                                                           | Phase 22 — it is still a placeholder right now                        | Pending            |
+| Preserve `/health`'s `{ ok, provenance }` shape when you take ownership                    | Already extended (Phase 11) — DB-only, no network calls, safe to poll | ✅ Done on my side |
+| World-side fixtures appended to `prisma/seed.ts`                                           | Phase 25 joint run                                                    | Pending            |
 
 ---
 
-## 8. Shared-file etiquette
+## 9. Shared-file etiquette
 
 These files are touched by both people. Append inside your own marked section;
 do not reorder or rewrite the other person's.
@@ -178,7 +240,7 @@ do not reorder or rewrite the other person's.
 
 ---
 
-## 9. Running it
+## 10. Running it
 
 ```bash
 cd backend

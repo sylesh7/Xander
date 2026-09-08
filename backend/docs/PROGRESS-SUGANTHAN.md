@@ -22,10 +22,10 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 8     | Robust baselines, scoring, policy bands             | ✅ **Done**                                                                    |
 | 9     | Substreams Rust module                              | ✅ **Done — verified live on Base Sepolia**                                    |
 | 10    | Substreams Node bridge + cache invalidation         | ✅ **Done — verified live, cursor resume proven, reorg tested**                |
-| 11    | Provenance & freshness guarantees                   | ⬜ **NEXT**                                                                    |
-| 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
+| 11    | Provenance & freshness guarantees                   | ✅ **Done** — verified live via `/health`                                      |
+| 12    | Testing, seed data, Sylesh interface                | ✅ **Done — the stub is gone, verified live**                                  |
 
-**10 of 12 done. 191 tests passing. Real-time evidence is live.**
+**ALL 12 PHASES DONE. 209 tests passing. The interface Sylesh imports from does real work.**
 
 ---
 
@@ -50,7 +50,7 @@ Everything below is built, running, and verified on this machine.
 | `src/lib/prisma.ts`                       | Single `PrismaClient`                                                                                                                     |
 | `src/server.ts`                           | Bare Express + `/health` (**Sylesh owns this from Phase 22**)                                                                             |
 | `src/interfaces/evidence-risk-api.ts`     | The seam with Sylesh — typed, signatures final                                                                                            |
-| `src/interfaces/stub-fixtures.ts`         | Deterministic stub responses; deleted at Phase 12                                                                                         |
+| `src/interfaces/stub-fixtures.ts`         | Stub-era fixture responses — repurposed at Phase 12 into just two address constants once real seed data replaced them                     |
 | `test/env.test.ts`, `test/health.test.ts` | vitest + supertest                                                                                                                        |
 
 ### Verified, not assumed
@@ -611,6 +611,152 @@ Required by Phase 10's own acceptance test ("kill and restart the sink
 mid-stream, confirm it resumes from the saved cursor") — there was nowhere to
 persist one. Section 0.4 updated in `Backend-Suganthan.md`; change logged in
 `Backend-Sylesh.md`. Sylesh-track-only, never read or written by their side.
+
+---
+
+## ✅ Phase 11 — Done: freshness guard + `/health`, verified live
+
+`src/provenance/{freshness-guard,health}.ts`.
+
+**Three source types, three different freshness questions**, because "how
+stale is this?" means something different for each — this is the real content
+of Phase 11, not a single generic timeout:
+
+- **standardized-subgraph** — the literal spec question. Re-queries the SAME
+  pinned deployment's `_meta.block.number` right now and compares it to the
+  block our stored evidence was captured at. The only signal needing a live
+  network call, bounded to one cheap `_meta`-only probe per DISTINCT
+  deployment in the wallet set (not per row), and it only runs on a
+  `getOrComputeClusterRisk` cache miss — Sylesh's Phase 14 cache is what keeps
+  this rare, not this guard.
+- **substreams** — no "chain head" question applies here. The real question is
+  "is the live stream still running," answered by `SubstreamsCursor.updatedAt`
+  with zero network calls.
+- **token-api** — no `_meta`-equivalent exists to compare against. The honest,
+  buildable question is recency of our own last successful fetch
+  (`EvidenceEvent.createdAt`), also zero network calls.
+
+A wallet with **no evidence at all** is not-fresh too — Section 0.2 rule 4:
+an empty picture is not a confidently clean one.
+
+`/health` now reports real provenance data, verified with a live curl:
+
+```json
+{
+  "ok": true,
+  "provenance": {
+    "tokenApi": { "lastSuccessAt": "...", "ageSeconds": 130, "stale": false },
+    "deployments": [{ "protocol": "uniswap-v3", "lastSeenBlock": "24989274", "lastSeenAt": "..." }],
+    "substreams": [
+      { "chain": "base-sepolia", "blockNumber": "46530002", "lagSeconds": 734, "stale": false }
+    ]
+  }
+}
+```
+
+**`/health` is deliberately DB-only — no outbound calls.** A health endpoint
+that hits the gateway or Token API on every poll is a real anti-pattern: it
+turns routine monitoring into rate-limit risk and slow responses under load.
+The live, network-calling check belongs to the freshness guard, which runs
+rarely (a cache miss); `/health` runs on every poll, so it only reports what
+Postgres already knows. Verified this holds even with an invalid credential —
+the test asserts `getProvenanceHealth()` never throws regardless of gateway
+state.
+
+`ok: true` at the top level is untouched — Phase 2's acceptance test still
+passes unmodified; `provenance` is additive, and degrades to `null` (not a
+failed health check) if it can't be computed, since an operator watching
+uptime should not go dark because a provenance query hiccuped.
+
+---
+
+## ✅ Phase 12 — Done: the stub is gone, verified live
+
+`src/interfaces/evidence-risk-api.ts` — both locked functions now do real
+work. This is the phase that matters most to Sylesh, so it got the most
+scrutiny: everything below was run against real Postgres and real
+credentials, not asserted from reading the code.
+
+### `getOrComputeClusterRisk(wallet)`
+
+1. Looks up the wallet's existing `Cluster` membership — **read-only**. Forming
+   a NEW cluster needs a campaign's full candidate set, which one wallet
+   doesn't have; see the new `recomputeClusterForCandidates` export below.
+2. Runs the Phase 11 freshness guard. Not fresh → `PENDING_REVIEW`, no score
+   computed.
+3. Otherwise scores the cluster (or the lone wallet) and returns `OK` with the
+   real score, features, sources, `policyVersion`.
+4. **Any internal failure also resolves `PENDING_REVIEW`** — no active policy,
+   a database error, anything. A thrown exception must never be the thing
+   standing between a caller and an accidental silent `ALLOW`.
+
+**Live-verified, all four paths:**
+
+```
+FIXTURE_CLEAN_WALLET      -> status OK,  riskScore 0,      clusterId null
+FIXTURE_CLUSTERED_WALLET  -> status OK,  riskScore 0.8465, clusterId <real cuid>, BLOCK
+unknown wallet             -> status PENDING_REVIEW, riskScore 0
+refreshWalletEvidence(vitalik.eth) -> 200 real events, 0 errors
+```
+
+That third line is the one to sit with: an unknown wallet's `riskScore` is 0,
+which is inside the `ALLOW` band. A caller that skips the status check reads
+that as a confident, well-evidenced approval — backwards for a wallet the
+system knows nothing about. There's a test named exactly this:
+`THE MOST DANGEROUS CASE` in `test/evidence-risk-api.db.test.ts`.
+
+### `refreshWalletEvidence(wallet)`
+
+No longer a no-op. Fetches Token API inbound transfers plus the wallet's
+activity across **every enabled Standardized Subgraph deployment in every
+schema family** (lending-cdp, dex-amm, yield-aggregator), normalizes, persists
+idempotently. One deployment failing doesn't abort the others — errors collect
+into a list rather than throwing, so a rate-limited protocol doesn't take down
+evidence you could otherwise have gotten. Live-verified against a real
+address: 100 Token API events + 100 subgraph events, 0 errors, dispatched
+correctly across all three schema families in one call.
+
+### The architecture gap, named rather than papered over
+
+`getOrComputeClusterRisk(wallet)` takes one wallet, not a campaign — it
+structurally cannot form a NEW cluster on its own, only look up one a prior
+pass already computed. Phase 6's clustering needs "every wallet that
+interacted with a given campaign," which only Sylesh's `Claim` table knows.
+
+Rather than fake this (e.g. silently clustering against unrelated wallets, or
+pretending single-wallet lookups can discover coordination), a third,
+**additive** export makes the real capability available:
+
+```ts
+export async function recomputeClusterForCandidates(wallets: string[]): Promise<string[]>
+```
+
+Documented in `docs/EVIDENCE-RISK-INTERFACE.md` §6 as something Sylesh's claim
+intake (Phase 22) should call once per campaign, over that campaign's full
+wallet list, before scoring individual claims. Skipping it doesn't break
+anything — wallets just score alone until it's called — but for any campaign
+where coordinated claims are the actual threat, it needs calling.
+
+### Fixture scenarios, now real data instead of hardcoded responses
+
+`prisma/seed.ts` seeds `FIXTURE_CLEAN_WALLET` with two spread-out, uncorrelated
+events, and `FIXTURE_CLUSTERED_WALLET` plus four synthetic mates sharing one
+funder in a tight window with an identical deposit→borrow→repay path — then
+calls `recomputeClusterForCandidates` on the five so a **real** `Cluster` row
+exists, not a fabricated `clusterId` string. `sourceType` is `'token-api'`
+rather than `'substreams'` deliberately: substreams evidence requires a live
+`SubstreamsCursor` row to read as fresh (Phase 11), and synthetic seed data has
+no business creating one — a fixture using that source type would resolve
+`PENDING_REVIEW` forever, defeating its whole purpose.
+
+`stub-fixtures.ts` is repurposed rather than deleted (its own header said
+"DELETE THIS FILE at Phase 12") — Sylesh's docs reference importing
+`FIXTURE_CLEAN_WALLET`/`FIXTURE_CLUSTERED_WALLET` from that path, so the
+constants stay there; only the fake `ClusterRisk` response map is gone.
+
+Verified: typecheck clean, lint clean, **209/209 tests** (18 new this phase,
+several against real Postgres proving PENDING_REVIEW behavior, cluster-level
+scoring, and the freshness/health logic on real timestamps and cursor rows).
 
 ---
 
