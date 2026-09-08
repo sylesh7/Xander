@@ -1,9 +1,9 @@
 ---
-name: sybil-shield-backend
-description: Architecture rules and ownership boundaries for the Sybil Shield backend. Use whenever writing, reviewing, or planning code in backend/ — risk scoring, clustering, evidence normalization, the Prisma schema, env config, the Suganthan/Sylesh interface seam, or any file under src/. Also use when asked "what phase am I on", when adding a protocol/chain/weight, or when a change touches prisma/schema.prisma, prisma/seed.ts, .env.example, src/config/env.ts, or src/server.ts.
+name: xander-backend
+description: Architecture rules and ownership boundaries for the Xander backend. Use whenever writing, reviewing, or planning code in backend/ — risk scoring, clustering, evidence normalization, the Prisma schema, env config, the Suganthan/Sylesh interface seam, or any file under src/. Also use when asked "what phase am I on", when adding a protocol/chain/weight, or when a change touches prisma/schema.prisma, prisma/seed.ts, .env.example, src/config/env.ts, or src/server.ts.
 ---
 
-# Sybil Shield — backend engineering rules
+# Xander — backend engineering rules
 
 Two-person backend, 25 phases. Specs are `Backend-Suganthan.md` (Phases 1–12,
 Evidence & Risk Engine) and `Backend-Sylesh.md` (Phases 13–25, Decision,

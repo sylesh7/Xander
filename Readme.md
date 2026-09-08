@@ -1,8 +1,8 @@
-# Sybil Shield
+# Xander
 
 **A Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie Check as a selective escalation layer.**
 
-Sybil Shield sits in front of a token claim or DeFi incentive action. It builds a live evidence layer from **The Graph**, turns that evidence into a deterministic, explainable risk score per wallet/cluster, uses an AI investigation agent to explain *why* a cluster is flagged, and — only when risk crosses a threshold — escalates to **World ID Selfie Check** for a biometric liveness/uniqueness signal before the protocol allows, challenges, or blocks the claim.
+Xander sits in front of a token claim or DeFi incentive action. It builds a live evidence layer from **The Graph**, turns that evidence into a deterministic, explainable risk score per wallet/cluster, uses an AI investigation agent to explain *why* a cluster is flagged, and — only when risk crosses a threshold — escalates to **World ID Selfie Check** for a biometric liveness/uniqueness signal before the protocol allows, challenges, or blocks the claim.
 
 Built for **ETHOnline 2026**, targeting two sponsor prizes:
 
@@ -42,7 +42,7 @@ Every major token airdrop or claim campaign of the last two years has had to fig
 
 The pattern across all four: **detection happens once, after the campaign, entirely inside the sponsor's backend, with no reasoning a flagged user or an outside reviewer can actually inspect.** A wallet is silently excluded or silently allowed, and the only appeal process is a forum thread.
 
-Sybil Shield exists to fix the part of this that's actually fixable in a hackathon-sized backend: make every decision **provenance-backed and reproducible**, and reserve the invasive step — biometric verification — for the wallets that actually need it, not the entire eligible pool.
+Xander exists to fix the part of this that's actually fixable in a hackathon-sized backend: make every decision **provenance-backed and reproducible**, and reserve the invasive step — biometric verification — for the wallets that actually need it, not the entire eligible pool.
 
 ## The solution
 
@@ -141,7 +141,7 @@ sequenceDiagram
 
 The Graph is the evidence layer for the entire product. Four of its products are composed into one pipeline, driven by **one schema-family query pattern reused across every protocol supported** — that reuse, not any single API call, is the actual composability claim.
 
-| Product | Role in Sybil Shield | What it answers |
+| Product | Role in Xander | What it answers |
 |---|---|---|
 | **Token API** | Historical wallet-level evidence (REST) | Who funded this wallet, when, from how many sources, when did it first appear on-chain |
 | **Standardized Subgraphs** | Cross-protocol DeFi behavior (GraphQL, one query per schema family — Messari lending-cdp, dex-amm, yield-aggregator) | Has this wallet borrowed, supplied, swapped, or farmed — across *any* protocol tagged into that schema family, with zero protocol-specific code |

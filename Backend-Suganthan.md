@@ -1,4 +1,4 @@
-# SYBIL SHIELD — BACKEND-SUGANTHAN
+# XANDER — BACKEND-SUGANTHAN
 ## Track: Evidence & Risk Engine (Phases 1–12 of 25)
 
 **Read this first, every time you open this file:** this is one half of a two-person backend. The other half is `Backend-Sylesh.md` (Phases 13–25, Decision/Escalation/API track). **Section 0 below (Locked Product Spec, Shared Prisma Schema, Env Vars, Repo Layout) is byte-identical in both files on purpose** — it is the contract that lets the two of you build independently and wire together at the end without a merge nightmare. If you ever need to change something in Section 0, change it in both files in the same sitting, or tell Sylesh immediately — a schema drift between the two docs is the one thing that will actually block final wiring.
@@ -11,7 +11,7 @@ Every technical claim in this document — package names, endpoints, entity name
 
 ### 0.1 Locked product spec
 
-> **Sybil Shield is a real-time adaptive Sybil firewall for token claims and DeFi incentives. It continuously builds provenance-backed behavioral evidence from The Graph's Token API, Standardized Subgraphs, and Substreams, normalizes it into a behavior graph, clusters coordinated wallets, and scores them using deterministic, explainable features with robust (median/MAD) statistics. Clusters — not individual wallets — are the unit of analysis. Suspicious clusters can be investigated by an AI agent through Subgraph MCP, but the AI never makes the enforcement decision. A policy engine decides the minimum assurance a claim needs: allow immediately, escalate to World Selfie Check for an additional liveness/uniqueness credential, or block. Every decision produces a reproducible Evidence Receipt — features, sources, deployment IDs, block numbers, and the exact policy version that made the call.**
+> **Xander is a real-time adaptive Sybil firewall for token claims and DeFi incentives. It continuously builds provenance-backed behavioral evidence from The Graph's Token API, Standardized Subgraphs, and Substreams, normalizes it into a behavior graph, clusters coordinated wallets, and scores them using deterministic, explainable features with robust (median/MAD) statistics. Clusters — not individual wallets — are the unit of analysis. Suspicious clusters can be investigated by an AI agent through Subgraph MCP, but the AI never makes the enforcement decision. A policy engine decides the minimum assurance a claim needs: allow immediately, escalate to World Selfie Check for an additional liveness/uniqueness credential, or block. Every decision produces a reproducible Evidence Receipt — features, sources, deployment IDs, block numbers, and the exact policy version that made the call.**
 
 This is now locked. Three teams' worth of independent review converged on it, and the strategic reasoning holds up against real evidence — most importantly, The Graph's own July 2026 retrospective on ETHGlobal Lisbon winners (`thegraph.com/blog/ethglobal-lisbon-2026-winners/`, confirmed live, published July 28, 2026) shows ten independent teams converging, unprompted, on exactly three things this spec already does: (1) a deployment registry mapping standardized schemas to protocol deployments instead of hand-coded adapters — `deeptrace`, `atlas`, `BookerBob`, and `Am I cooked` all built one, independently; (2) provenance and freshness treated as correctness, not decoration — `deeptrace` rejects any response whose deployment ID doesn't match a pinned value, `EQLTY` blocks a trade on stale data rather than acting on it, `atlas` health-checks sources before spending; (3) real-time streaming as a correctness requirement, not a performance nice-to-have — `atlas` moved off polling onto a Substreams gRPC subscription specifically because "a guard five minutes late is a preference for an app that displays and a bug for one that spends." Your architecture already does all three. Build it as specified below.
 
@@ -217,7 +217,7 @@ model SubstreamsCursor {
 ### 0.5 Repo layout (shared repo — you both work in the same tree)
 
 ```text
-sybil-shield-backend/
+xander-backend/
 ├── src/
 │   ├── config/                       # SUGANTHAN Phase 2 — shared, don't duplicate
 │   │   ├── env.ts
@@ -251,7 +251,7 @@ sybil-shield-backend/
 # .env.example — your section. Sylesh's vars (World, MCP) are appended in their doc.
 
 NODE_ENV=development
-DATABASE_URL=postgresql://user:pass@localhost:5432/sybil_shield
+DATABASE_URL=postgresql://user:pass@localhost:5432/xander
 REDIS_URL=redis://localhost:6379
 
 GRAPH_MARKET_API_TOKEN=            # Phase 1 — Token API bearer JWT
@@ -402,7 +402,7 @@ You've decided to build this for real, not as a stretch goal — the Lisbon retr
   ```toml
   # Cargo.toml
   [package]
-  name = "sybil-shield-substreams"
+  name = "xander-substreams"
   version = "0.1.0"
   edition = "2021"
 
@@ -426,26 +426,26 @@ You've decided to build this for real, not as a stretch goal — the Lisbon retr
   # substreams.yaml
   specVersion: v0.1.0
   package:
-    name: "sybil_shield_substreams"
+    name: "xander_substreams"
     version: v0.1.0
   imports:
     entity: https://github.com/streamingfast/substreams-entity-change/releases/download/v0.2.1/substreams-entity-change-v0.2.1.spkg
   protobuf:
     files:
-      - sybil_shield.proto
+      - xander.proto
     importPaths:
       - ./proto
   binaries:
     default:
       type: wasm/rust-v1
-      file: ./target/wasm32-unknown-unknown/release/sybil_shield_substreams.wasm
+      file: ./target/wasm32-unknown-unknown/release/xander_substreams.wasm
   modules:
     - name: map_funding_transfers
       kind: map
       inputs:
         - source: sf.ethereum.type.v2.Block
       output:
-        type: proto:sybil_shield.v1.FundingTransfers
+        type: proto:xander.v1.FundingTransfers
     - name: graph_out
       kind: map
       inputs:

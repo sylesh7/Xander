@@ -486,7 +486,7 @@ entry — the address watch-list is already config (Section 0.2 rule 1), so
 nothing else here is chain-specific.
 
 ```
-$ substreams run -e basesepolia.substreams.pinax.network:443 sybil_shield_substreams-v0.1.0.spkg map_funding_transfers -s 46530000 -t +5
+$ substreams run -e basesepolia.substreams.pinax.network:443 xander_substreams-v0.1.0.spkg map_funding_transfers -s 46530000 -t +5
 Blocks to process in requested range: 5
 113 ERC-20 transfers + native transfers, fully decoded, real values
 Completed successfully
@@ -498,7 +498,7 @@ _mainnet_) for either StreamingFast or Pinax. Found by pattern-matching
 Pinax's own documented `basesepolia.rpc.pinax.network` RPC endpoint naming
 (no dash — `basesepolia`, not `base-sepolia`), confirming TLS reachability
 directly, then proving it with a real `substreams run`. Recorded in
-`sybil-shield-graph` so it doesn't need rediscovering.
+`xander-graph` so it doesn't need rediscovering.
 
 `map_funding_transfers` decodes ERC-20 `Transfer` logs (filtered by topic0,
 value read as `uint256` → decimal string via `BigInt`, never `u64` — an

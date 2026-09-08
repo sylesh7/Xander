@@ -1,4 +1,4 @@
-# SYBIL SHIELD — BACKEND-SYLESH
+# XANDER — BACKEND-SYLESH
 ## Track: Decision, Escalation & API (Phases 13–25 of 25)
 
 **Read this first, every time you open this file:** this is one half of a two-person backend. The other half is `Backend-Suganthan.md` (Phases 1–12, Evidence & Risk Engine track). **Section 0 below is byte-identical in both files on purpose** — it's the contract that lets the two of you build independently and wire together at the end. If Section 0 ever needs to change, change it in both files in the same sitting, or tell Suganthan immediately.
@@ -11,7 +11,7 @@ Every technical claim below — package names, endpoints, request/response shape
 
 ### 0.1 Locked product spec
 
-> **Sybil Shield is a real-time adaptive Sybil firewall for token claims and DeFi incentives. It continuously builds provenance-backed behavioral evidence from The Graph's Token API, Standardized Subgraphs, and Substreams, normalizes it into a behavior graph, clusters coordinated wallets, and scores them using deterministic, explainable features with robust (median/MAD) statistics. Clusters — not individual wallets — are the unit of analysis. Suspicious clusters can be investigated by an AI agent through Subgraph MCP, but the AI never makes the enforcement decision. A policy engine decides the minimum assurance a claim needs: allow immediately, escalate to World Selfie Check for an additional liveness/uniqueness credential, or block. Every decision produces a reproducible Evidence Receipt — features, sources, deployment IDs, block numbers, and the exact policy version that made the call.**
+> **Xander is a real-time adaptive Sybil firewall for token claims and DeFi incentives. It continuously builds provenance-backed behavioral evidence from The Graph's Token API, Standardized Subgraphs, and Substreams, normalizes it into a behavior graph, clusters coordinated wallets, and scores them using deterministic, explainable features with robust (median/MAD) statistics. Clusters — not individual wallets — are the unit of analysis. Suspicious clusters can be investigated by an AI agent through Subgraph MCP, but the AI never makes the enforcement decision. A policy engine decides the minimum assurance a claim needs: allow immediately, escalate to World Selfie Check for an additional liveness/uniqueness credential, or block. Every decision produces a reproducible Evidence Receipt — features, sources, deployment IDs, block numbers, and the exact policy version that made the call.**
 
 This is now locked. Three teams' worth of independent review converged on it, and the strategic reasoning holds up against real evidence — most importantly, The Graph's own July 2026 retrospective on ETHGlobal Lisbon winners (`thegraph.com/blog/ethglobal-lisbon-2026-winners/`, confirmed live, published July 28, 2026) shows ten independent teams converging, unprompted, on exactly three things this spec already does: (1) a deployment registry mapping standardized schemas to protocol deployments instead of hand-coded adapters — `deeptrace`, `atlas`, `BookerBob`, and `Am I cooked` all built one, independently; (2) provenance and freshness treated as correctness, not decoration — `deeptrace` rejects any response whose deployment ID doesn't match a pinned value, `EQLTY` blocks a trade on stale data rather than acting on it, `atlas` health-checks sources before spending; (3) real-time streaming as a correctness requirement, not a performance nice-to-have — `atlas` moved off polling onto a Substreams gRPC subscription specifically because "a guard five minutes late is a preference for an app that displays and a bug for one that spends." Your architecture already does all three. Build it as specified below.
 
@@ -59,7 +59,7 @@ One field to know cold: `VerificationChallenge.nullifier` is `Decimal @db.Decima
 ### 0.5 Repo layout — your folders
 
 ```text
-sybil-shield-backend/
+xander-backend/
 ├── src/
 │   ├── graph/, evidence/, behavior-graph/, risk/, provenance/    # SUGANTHAN's track
 │   ├── interfaces/
@@ -145,7 +145,7 @@ Do this on Day 1, in parallel with Suganthan's Phase 1 — this is the longest l
    import { env } from '../config/env'
 
    export const subgraphMcpClient = new MCPClient({
-     id: 'sybil-shield-subgraph-mcp',
+     id: 'xander-subgraph-mcp',
      servers: {
        subgraphMcp: {
          url: new URL('https://subgraphs.mcp.thegraph.com/sse'), // confirmed endpoint

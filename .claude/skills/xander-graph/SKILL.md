@@ -1,6 +1,6 @@
 ---
-name: sybil-shield-graph
-description: Verified integration facts for The Graph in the Sybil Shield backend — Token API REST endpoints, the Standardized Subgraphs gateway URL, Messari lending schema entity names, Substreams crates and manifest shape, the substreams sink packages, and Subgraph MCP. Use when writing or debugging anything under src/graph/, when building the deployment registry, when writing GraphQL queries or the Substreams Rust module, or whenever tempted to guess a Graph package name, endpoint, or entity name.
+name: xander-graph
+description: Verified integration facts for The Graph in the Xander backend — Token API REST endpoints, the Standardized Subgraphs gateway URL, Messari lending schema entity names, Substreams crates and manifest shape, the substreams sink packages, and Subgraph MCP. Use when writing or debugging anything under src/graph/, when building the deployment registry, when writing GraphQL queries or the Substreams Rust module, or whenever tempted to guess a Graph package name, endpoint, or entity name.
 ---
 
 # The Graph — confirmed integration facts
@@ -243,7 +243,7 @@ tested reference, not just a scaffold.
 # Pack — always via the Docker image on Windows
 docker run --rm -v "$(pwd)/substreams:/work" -w /work \
   ghcr.io/streamingfast/substreams:v1.22.0 pack ./substreams.yaml \
-  -o ./sybil_shield_substreams-v0.1.0.spkg
+  -o ./xander_substreams-v0.1.0.spkg
 
 # Run — CLI flags that differ from casual assumption:
 #   -e/--endpoint is a FLAG, not positional
