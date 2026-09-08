@@ -197,7 +197,7 @@ threat model, call this first.
 ## 7. What Sylesh needs from Suganthan, and when
 
 | Sylesh needs                                         | To unblock                | Status                                                                                                                                                                                                                                  |
-| ---------------------------------------------------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ---------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `evidence-risk-api.ts`, real behaviour               | Phases 14, 20, 22         | ✅ **Available — real, not stubbed.** Verified live, see §5                                                                                                                                                                             |
 | `RISK_INVALIDATION_QUEUE` name + payload             | Phase 14 cache worker     | Available now                                                                                                                                                                                                                           |
 | Migrated Postgres with all 11 models                 | Phases 20, 21, 22         | Available now                                                                                                                                                                                                                           |
@@ -217,7 +217,7 @@ Sylesh from building against real data end to end.
 ## 8. What Suganthan needs from Sylesh
 
 | Suganthan needs                                                                            | For                                                                   | Status             |
-| -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------- |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------ |
 | Confirmation the Phase 14 worker consumes `risk-invalidation` with the exact payload above | Phase 10.4 seam                                                       | Pending            |
 | `server.ts` ownership taken over                                                           | Phase 22 — it is still a placeholder right now                        | Pending            |
 | Preserve `/health`'s `{ ok, provenance }` shape when you take ownership                    | Already extended (Phase 11) — DB-only, no network calls, safe to poll | ✅ Done on my side |
@@ -265,3 +265,61 @@ npm run substreams:pack   # packs backend/substreams into a .spkg
 npm run substreams:run    # runs the packed module against live Base Sepolia
 curl -s localhost:3000/health | jq .provenance   # DB-only freshness snapshot
 ```
+
+---
+
+## 11. Standalone deliverable: the `xander` Subgraph Studio subgraph
+
+Not part of the locked Suganthan → Sylesh seam above, and not required by
+either spec — built on explicit request, as an additional, directly-queryable
+Graph artifact separate from the Substreams pipeline in §1-10. **Sylesh does
+not need this for anything in the interface contract; it exists so The
+Graph's Subgraph Studio product is represented by a real, live, queryable
+deployment for the demo, alongside Token API, Standardized Subgraphs and
+Substreams.**
+
+| Item                | Value                                                                 |
+| -------------------- | --------------------------------------------------------------------- |
+| Location             | `xander-subgraph/` (repo root, **outside** `backend/` — its own npm project) |
+| Network               | `base-sepolia` — matches the Substreams target (§9 above), not mainnet |
+| Contract              | Base Sepolia USDC proxy, `0x036CbD53842c5426634e7929541eC2318f3dCF7e` — verified live: same EIP-1967 proxy bytecode as mainnet USDC, `symbol() == "USDC"` |
+| Entities indexed      | `Transfer` (hand-added — the auto-fetched ABI was proxy-only, `AdminChanged`/`Upgraded`, no ERC-20 events at all), plus `AdminChanged`, `Upgraded` |
+| `startBlock`          | Set a few hundred blocks behind head at each deploy, not genesis — syncing a live token from block 0 is impractical to observe in one session |
+| Studio page           | `https://thegraph.com/studio/subgraph/xander`                        |
+| Current query endpoint | `https://api.studio.thegraph.com/query/1758823/xander/v0.0.3`        |
+| Status                | ✅ **Deployed, synced to head, verified live** — real testnet `Transfer` events returned, confirmed advancing across a live poll |
+
+### Commands to rebuild / redeploy it
+
+```bash
+cd xander-subgraph
+npm install
+npx graph codegen
+npx graph build
+npx graph auth <deploy-key>                                          # once
+npx graph deploy --node https://api.studio.thegraph.com/deploy/ -l vX.Y.Z xander
+```
+
+### Query it
+
+```bash
+curl -s -X POST https://api.studio.thegraph.com/query/1758823/xander/v0.0.3 \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ _meta { block { number } } transfers(first:5, orderBy: blockNumber, orderDirection: desc) { id from to value blockNumber } }"}'
+```
+
+### Two real fixes made after the first deploy
+
+1. **No `startBlock` meant syncing from genesis.** The scaffolded manifest
+   defaulted to block 0 against a live head 51M+ blocks in on mainnet — set an
+   explicit near-head `startBlock` instead.
+2. **The auto-fetched ABI had no `Transfer` event.** `graph init` fetches
+   whatever ABI is *at* the given address, and USDC sits behind an EIP-1967
+   proxy — the proxy's own ABI is `AdminChanged`/`Upgraded`/`admin`/etc, not
+   the ERC-20 implementation. Added the standard, fixed
+   `Transfer(address indexed,address indexed,uint256)` fragment by hand; the
+   proxy still emits it via `delegatecall`, so indexing it at the proxy
+   address is correct.
+3. **Mainnet → Base Sepolia.** First deployed against Base mainnet; switched
+   to Base Sepolia (`0x036CbD53...`) on request, to match the rest of the
+   project, which already targets testnet only for Substreams.
