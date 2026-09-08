@@ -2,7 +2,7 @@
  * Substreams stream consumer — Backend-Suganthan.md Phase 10.
  *
  * The bridge between the Phase 9 WASM module and the Phase 5 evidence
- * repository: connects over gRPC, decodes `sybil_shield.v1.FundingTransfers`,
+ * repository: connects over gRPC, decodes `xander.v1.FundingTransfers`,
  * normalizes it, persists it idempotently, handles reorgs, and enqueues
  * cache invalidation for Sylesh's Phase 14 worker.
  *

@@ -3,7 +3,7 @@
  *
  * Usage:
  *   node --env-file=.env --import tsx src/graph/substreams/run.ts \
- *     --spkg substreams/sybil_shield_substreams-v0.1.0.spkg \
+ *     --spkg substreams/xander_substreams-v0.1.0.spkg \
  *     --network mainnet \
  *     --watch 0xabc...,0xdef... \
  *     --start 21000000 \

@@ -33,7 +33,7 @@ const result = spawnSync(
     'pack',
     './substreams.yaml',
     '-o',
-    './sybil_shield_substreams-v0.1.0.spkg',
+    './xander_substreams-v0.1.0.spkg',
   ],
   { stdio: 'inherit' },
 )

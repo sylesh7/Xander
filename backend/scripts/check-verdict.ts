@@ -30,7 +30,7 @@ async function main(): Promise<void> {
     console.log(
       `No EvidenceEvent rows found for chain "${chain}". Run one of these first:\n` +
         `  npm run check:graph\n` +
-        `  node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/sybil_shield_substreams-v0.1.0.spkg --network ${chain} --start <block> --stop +3\n`,
+        `  node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/xander_substreams-v0.1.0.spkg --network ${chain} --start <block> --stop +3\n`,
     )
     process.exitCode = 1
     return
