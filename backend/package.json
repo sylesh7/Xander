@@ -1,5 +1,5 @@
 {
-  "name": "sybil-shield-backend",
+  "name": "xander-backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -24,7 +24,7 @@
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
     "substreams:pack": "node scripts/substreams-pack.mjs",
-    "substreams:run": "node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/sybil_shield_substreams-v0.1.0.spkg",
+    "substreams:run": "node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/xander_substreams-v0.1.0.spkg",
     "check:graph": "tsx --env-file=.env scripts/check-graph.ts",
     "check:verdict": "tsx --env-file=.env scripts/check-verdict.ts"
   },
