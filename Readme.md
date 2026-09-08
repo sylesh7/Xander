@@ -150,7 +150,7 @@ The Graph is the evidence layer for the entire product. Four of its products are
 
 The `DeploymentRegistryEntry` table is the single place "which protocols we support" lives — adding a new lending protocol is an `INSERT`, never a code change. The same `lending-cdp` query module already runs, unmodified, against every deployment tagged into that schema family — that live "add a protocol as data, not code" moment is the actual demo evidence for the composability track, not just a design paragraph.
 
-**A fifth Graph product is deployed as a standalone, directly-queryable artifact** alongside the pipeline above: a real **Subgraph Studio** subgraph (`xander`), indexing live Base Sepolia USDC `Transfer` events, deployed and synced end-to-end — see `backend/docs/EVIDENCE-RISK-INTERFACE.md` §11 for its full build/query story.
+**A fifth Graph product is deployed as a standalone, directly-queryable artifact** alongside the pipeline above: a real **Subgraph Studio** subgraph (`xander`), indexing live Base Sepolia USDC `Transfer` events, deployed and synced end-to-end at **`v0.0.3`** — see [Try it live](#try-it-live--query-the-deployed-subgraph) below to query it yourself, or `backend/docs/EVIDENCE-RISK-INTERFACE.md` §11 for its full build/query story.
 
 ## World ID — Selfie Check as a selective signal
 
