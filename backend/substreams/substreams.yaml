@@ -33,12 +33,29 @@ binaries:
     type: wasm/rust-v1
     file: ./target/wasm32-unknown-unknown/release/sybil_shield_substreams.wasm
 
-network: mainnet
+# Base Sepolia, not mainnet: this is the hackathon build/demo target — cheap
+# 2s blocks, no real funds at risk while iterating, and `base` is already a
+# supported TOKEN_API_NETWORKS entry (Phase 3), so evidence from this chain
+# slots into the same pipeline without a new network being invented anywhere.
+# Switching to Base mainnet (or Ethereum) at ship time is a one-line change
+# (network + initialBlock) since the address watch-list is already config,
+# never hardcoded (Section 0.2 rule 1) — nothing else here is chain-specific.
+#
+# Endpoint verified live 2026-09-08: basesepolia.substreams.pinax.network:443
+# resolves and streamed real decoded transfers. NOT documented in
+# thegraph.com/streamingfast's published chains-and-endpoints table at the
+# time of writing — found by pattern-matching Pinax's own (documented)
+# basesepolia.rpc.pinax.network RPC endpoint naming and confirming reachability
+# directly, then proving it with a real `substreams run`. If this endpoint
+# ever stops resolving, that is the first thing to re-verify, not assume.
+network: base-sepolia
 
 modules:
   - name: map_funding_transfers
     kind: map
-    initialBlock: 21000000
+    # A recent, comfortably-finalized Base Sepolia block as of 2026-09-08 (head
+    # was ~46,539,941). Pick a fresher one if this drifts far behind head.
+    initialBlock: 46530000
     inputs:
       # Comma-separated lower-case addresses to watch. Config, not a hardcoded
       # list (Section 0.2 rule 1) — changing campaign is a parameter change.

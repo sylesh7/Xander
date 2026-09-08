@@ -20,26 +20,12 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 6     | Behavior Graph & Clustering                         | ✅ **Done**                                                                    |
 | 7     | Risk Engine: feature extractors                     | ✅ **Done**                                                                    |
 | 8     | Robust baselines, scoring, policy bands             | ✅ **Done**                                                                    |
-| 9     | Substreams Rust module                              | ✅ **Done — verified live on real mainnet blocks**                             |
+| 9     | Substreams Rust module                              | ✅ **Done — verified live on Base Sepolia**                                    |
 | 10    | Substreams Node bridge + cache invalidation         | ✅ **Done — verified live, cursor resume proven, reorg tested**                |
 | 11    | Provenance & freshness guarantees                   | ⬜ **NEXT**                                                                    |
 | 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
 
 **10 of 12 done. 191 tests passing. Real-time evidence is live.**
-
------ | --------------------------------------------------- | ----------------------------------------------- |
-| 1 | Access & credentials (Graph) + local infra | 🟡 Partial — infra done, credentials pending |
-| 2 | Repo scaffold + shared schema + env config | ✅ **Done** |
-| 3 | Token API client | ⬜ Not started — blocked on 1.1 |
-| 4 | Standardized Subgraphs client + Deployment Registry | ⬜ Not started — blocked on 1.2 / 1.3 |
-| 5 | Evidence Normalizer | ⬜ Not started — _no credentials needed_ |
-| 6 | Behavior Graph & Clustering | ⬜ Not started — _no credentials needed_ |
-| 7 | Risk Engine: feature extractors | ✅ **Done** |
-| 8 | Robust baselines, scoring, policy bands | ✅ **Done** |
-| 9 | Substreams Rust module | ✅ **Done — verified live on real mainnet blocks** |
-| 10 | Substreams Node bridge + cache invalidation | ✅ **Done — verified live, cursor resume proven, reorg tested** |
-| 11 | Provenance & freshness guarantees | ⬜ **NEXT** |
-| 12 | Testing, seed data, Sylesh interface | 🟡 Partial — interface stubbed early, see below |
 
 ---
 
@@ -473,17 +459,32 @@ every decision replays exactly.
 
 ---
 
-## ✅ Phase 9 — Done, verified on live mainnet data
+## ✅ Phase 9 — Done, verified on live Base Sepolia data
 
 `backend/substreams/` — a real Rust crate, compiled to `wasm32-unknown-unknown`,
-packed into a valid `.spkg`, and run against live Ethereum mainnet through your
-own credentials.
+packed into a valid `.spkg`, and run against live **Base Sepolia** through your
+own credentials. Base Sepolia, not mainnet, is the deliberate build/demo
+target — 2s blocks are cheap to stream and iterate against, and `base` is
+already a `TOKEN_API_NETWORKS` entry (Phase 3), so this chain's evidence needs
+no new network invented anywhere in the pipeline. Flipping to a mainnet chain
+at ship time is one `network:` line plus a matching `SUBSTREAMS_ENDPOINTS`
+entry — the address watch-list is already config (Section 0.2 rule 1), so
+nothing else here is chain-specific.
 
 ```
-$ substreams run -e eth.substreams.pinax.network:443 sybil_shield_substreams-v0.1.0.spkg map_funding_transfers -s 21000000 -t +5
+$ substreams run -e basesepolia.substreams.pinax.network:443 sybil_shield_substreams-v0.1.0.spkg map_funding_transfers -s 46530000 -t +5
 Blocks to process in requested range: 5
-928 ERC-20 transfers + 316 native transfers, fully decoded, real values
+113 ERC-20 transfers + native transfers, fully decoded, real values
+Completed successfully
 ```
+
+**The Base Sepolia endpoint required finding, not just reading.** It is not
+listed in the published `chains-and-endpoints` table (which only shows Base
+_mainnet_) for either StreamingFast or Pinax. Found by pattern-matching
+Pinax's own documented `basesepolia.rpc.pinax.network` RPC endpoint naming
+(no dash — `basesepolia`, not `base-sepolia`), confirming TLS reachability
+directly, then proving it with a real `substreams run`. Recorded in
+`sybil-shield-graph` so it doesn't need rediscovering.
 
 `map_funding_transfers` decodes ERC-20 `Transfer` logs (filtered by topic0,
 value read as `uint256` → decimal string via `BigInt`, never `u64` — an
@@ -541,16 +542,16 @@ the real `.d.ts` disagreed:
 ### Verified live, three separate real runs
 
 ```
-RUN 1 (blocks 21000000-002, empty DB): 1536 EvidenceEvents written,
-  cursor persisted at 21000002, exit code 0.
+RUN 1 (Base Sepolia blocks 46530000-002, empty DB): 155 EvidenceEvents
+  written, cursor persisted at 46530002, exit code 0.
 
-RUN 2 (SAME range, cursor already at 002): 1536 rows — UNCHANGED.
-  Server-side resumed past the cursored range and reprocessed nothing.
-  THIS IS RESUME-FROM-CURSOR, PROVEN, NOT ASSERTED.
+RUN 2 (SAME range, cursor already at 002): 155 rows — UNCHANGED, zero
+  errors. Server-side resumed past the cursored range and reprocessed
+  nothing. THIS IS RESUME-FROM-CURSOR, PROVEN, NOT ASSERTED.
 
-REORG TEST (handleUndo against real Postgres): 3 rows across blocks
-  100/200/300 -> rollback to 100 -> 1 row remains, cursor rewound
-  to the undo signal's cursor.
+REORG TEST (handleUndo against real Postgres, chain-agnostic): 3 rows
+  across blocks 100/200/300 -> rollback to 100 -> 1 row remains, cursor
+  rewound to the undo signal's cursor.
 ```
 
 ### Three real bugs the tests and live runs caught

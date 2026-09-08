@@ -250,7 +250,7 @@ docker run --rm -v "$(pwd)/substreams:/work" -w /work \
 #   -s/-t take a string; -t accepts a bare number OR +N relative to -s
 docker run --rm -e SUBSTREAMS_API_TOKEN="$TOKEN" \
   ghcr.io/streamingfast/substreams:v1.22.0 \
-  run -e eth.substreams.pinax.network:443 <spkg> <module> -s 21000000 -t +5 -o jsonl
+  run -e basesepolia.substreams.pinax.network:443 <spkg> <module> -s 46530000 -t +5 -o jsonl
 ```
 
 ### JavaScript consumer SDK — confirmed against the installed package, not the docs example
@@ -312,18 +312,44 @@ Three things the bridge must do (Phase 10) — all built, all verified live:
 3. **Enqueue cache invalidation** only when new rows were actually written —
    a replayed block should not wake Sylesh's cache worker for nothing.
 
+### The build/demo target is Base Sepolia, not mainnet
+
+2s blocks, cheap to stream and iterate against, and `base` is already a
+`TOKEN_API_NETWORKS` entry (Phase 3) so this chain's evidence needs no new
+network invented anywhere else in the pipeline. Flip to a mainnet chain at
+ship time by changing `network:` in `substreams.yaml` plus one
+`SUBSTREAMS_ENDPOINTS` entry — everything else (the watch-list, the
+normalizer, the risk engine) is already chain-agnostic.
+
+**The Base Sepolia endpoint is not in the published endpoint table.**
+`docs.substreams.dev/reference-material/chain-support/chains-and-endpoints`
+lists Base _mainnet_ for both StreamingFast and Pinax but no Base Sepolia row
+for either, as of 2026-09-08. Found by pattern-matching Pinax's own
+documented `basesepolia.rpc.pinax.network` RPC endpoint naming — **no dash**
+(`basesepolia`, not `base-sepolia`) — confirming TLS reachability directly,
+then proving it with a real `substreams run`. If this endpoint stops
+resolving, re-verify it exactly this way rather than assuming a renamed
+successor.
+
+```
+Verified endpoint: basesepolia.substreams.pinax.network:443
+Manifest network:  base-sepolia
+Head block ~2026-09-08: 46,539,941 (2s blocks — moves fast, re-check before reuse)
+```
+
 ### Verified live run
 
 ```
-5 blocks from mainnet block 21000000 (substreams run, Phase 9 acceptance test):
-  928 ERC-20 transfers + 316 native transfers, fully decoded.
+5 blocks from Base Sepolia block 46530000 (substreams run, Phase 9 acceptance test):
+  113 ERC-20 transfers + native transfers, fully decoded. "Completed successfully".
 
 3 blocks through the full Phase 10 Node consumer, empty DB:
-  1536 EvidenceEvents written, cursor persisted at block 21000002.
+  155 EvidenceEvents written, cursor persisted at block 46530002.
 
 SAME 3-block range re-run with the cursor already there:
-  1536 rows — unchanged. The server resumed past the cursored range.
-  This is resume-from-cursor PROVEN against a live endpoint, not asserted.
+  155 rows — unchanged, zero errors. The server resumed past the cursored
+  range. This is resume-from-cursor PROVEN against a live endpoint, not
+  asserted by a mock.
 ```
 
 ### Endpoints — verified reachable 2026-09-08
@@ -331,15 +357,16 @@ SAME 3-block range re-run with the cursor already there:
 gRPC `host:port`. **No `https://` prefix** — that is the most common mistake and
 the resulting failure is opaque.
 
-| Chain            | Pinax                                  | StreamingFast                           |
-| ---------------- | -------------------------------------- | --------------------------------------- |
-| Ethereum mainnet | `eth.substreams.pinax.network:443`     | `mainnet.eth.streamingfast.io:443`      |
-| Ethereum Sepolia | `sepolia.substreams.pinax.network:443` | `sepolia.eth.streamingfast.io:443`      |
-| Base             | `base.substreams.pinax.network:443`    | `base-mainnet.streamingfast.io:443`     |
-| Polygon          | `polygon.substreams.pinax.network:443` | `polygon.streamingfast.io:443`          |
-| Arbitrum One     | `arbone.substreams.pinax.network:443`  | `arb-one.streamingfast.io:443`          |
-| BSC              | `bsc.substreams.pinax.network:443`     | `bnb.streamingfast.io:443`              |
-| Optimism         | —                                      | `mainnet.optimism.streamingfast.io:443` |
+| Chain            | Pinax                                                                                                                   | StreamingFast                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| Ethereum mainnet | `eth.substreams.pinax.network:443`                                                                                      | `mainnet.eth.streamingfast.io:443`      |
+| Ethereum Sepolia | `sepolia.substreams.pinax.network:443`                                                                                  | `sepolia.eth.streamingfast.io:443`      |
+| Base             | `base.substreams.pinax.network:443`                                                                                     | `base-mainnet.streamingfast.io:443`     |
+| **Base Sepolia** | **`basesepolia.substreams.pinax.network:443`** (no dash — undocumented, found by RPC-name pattern match, verified live) | not found for StreamingFast             |
+| Polygon          | `polygon.substreams.pinax.network:443`                                                                                  | `polygon.streamingfast.io:443`          |
+| Arbitrum One     | `arbone.substreams.pinax.network:443`                                                                                   | `arb-one.streamingfast.io:443`          |
+| BSC              | `bsc.substreams.pinax.network:443`                                                                                      | `bnb.streamingfast.io:443`              |
+| Optimism         | —                                                                                                                       | `mainnet.optimism.streamingfast.io:443` |
 
 **Holesky is sunset** — `holesky.substreams.pinax.network` no longer resolves.
 Do not re-add it.

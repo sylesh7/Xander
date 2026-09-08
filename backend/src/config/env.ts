@@ -98,7 +98,10 @@ const envSchema = z.object({
    * Third-party hosted and known to move, so this is config, not code.
    */
   SUBSTREAMS_ENDPOINTS: z.string().default(''),
-  SUBSTREAMS_DEFAULT_NETWORK: z.string().default('mainnet'),
+  // Base Sepolia, not mainnet: this project streams against the testnet
+  // while building/demoing. Switching to a mainnet chain at ship time is
+  // this one value plus the matching entry in SUBSTREAMS_ENDPOINTS.
+  SUBSTREAMS_DEFAULT_NETWORK: z.string().default('base-sepolia'),
   SUBSTREAMS_WEBHOOK_SECRET: optionalStr(),
 
   // --- Risk engine tunables (Phases 6, 7, 11) -----------------------------
