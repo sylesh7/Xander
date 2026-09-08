@@ -115,6 +115,17 @@ const envSchema = z.object({
   AGE_NORMALIZATION_BLOCKS: num(50_000),
   FRESHNESS_MAX_BLOCK_LAG: num(100),
   /**
+   * How old EvidenceEvent rows may be, in seconds, before token-api and
+   * standardized-subgraph evidence is treated as stale (Phase 11). Default 6h.
+   */
+  FRESHNESS_MAX_EVIDENCE_AGE_SECONDS: num(21_600),
+  /**
+   * How long a SubstreamsCursor may go without updating before its chain's
+   * live evidence is treated as stale — "is the stream still running", not a
+   * block-count question. Default 15 minutes.
+   */
+  FRESHNESS_MAX_STREAM_LAG_SECONDS: num(900),
+  /**
    * Cap on the event sequence PROTOCOL_BEHAVIOR_SIMILARITY compares (Phase 7).
    * LCS is O(n*m) per pair, so an uncapped busy wallet would dominate the whole
    * scoring pass.
