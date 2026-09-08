@@ -6,11 +6,11 @@ schema:
 dataSources:
   - kind: ethereum
     name: USDC
-    network: base
+    network: base-sepolia
     source:
-      address: "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
+      address: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
       abi: USDC
-      startBlock: 51033684
+      startBlock: 46544517
     mapping:
       kind: ethereum/events
       apiVersion: 0.0.9
