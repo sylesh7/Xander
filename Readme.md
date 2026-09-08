@@ -21,6 +21,7 @@ Built for **ETHOnline 2026**, targeting two sponsor prizes:
 - [How it works](#how-it-works)
 - [Claim flow — sequence diagram](#claim-flow--sequence-diagram)
 - [The Graph — how each product is used](#the-graph--how-each-product-is-used)
+- [Try it live — query the deployed subgraph](#try-it-live--query-the-deployed-subgraph)
 - [World ID — Selfie Check as a selective signal](#world-id--selfie-check-as-a-selective-signal)
 - [Architecture](#architecture)
 - [Tech stack](#tech-stack)
@@ -151,6 +152,51 @@ The Graph is the evidence layer for the entire product. Four of its products are
 The `DeploymentRegistryEntry` table is the single place "which protocols we support" lives — adding a new lending protocol is an `INSERT`, never a code change. The same `lending-cdp` query module already runs, unmodified, against every deployment tagged into that schema family — that live "add a protocol as data, not code" moment is the actual demo evidence for the composability track, not just a design paragraph.
 
 **A fifth Graph product is deployed as a standalone, directly-queryable artifact** alongside the pipeline above: a real **Subgraph Studio** subgraph (`xander`), indexing live Base Sepolia USDC `Transfer` events, deployed and synced end-to-end at **`v0.0.3`** — see [Try it live](#try-it-live--query-the-deployed-subgraph) below to query it yourself, or `backend/docs/EVIDENCE-RISK-INTERFACE.md` §11 for its full build/query story.
+
+## Try it live — query the deployed subgraph
+
+The `xander` subgraph is deployed and fully synced on **Base Sepolia** at **`v0.0.3`**. No setup needed — open the GraphiQL playground and run this query directly:
+
+**GraphiQL playground:** [`https://api.studio.thegraph.com/query/1758823/xander/v0.0.3`](https://api.studio.thegraph.com/query/1758823/xander/v0.0.3)
+**Studio page:** [`https://thegraph.com/studio/subgraph/xander`](https://thegraph.com/studio/subgraph/xander)
+
+```graphql
+{
+  _meta {
+    block {
+      number
+    }
+  }
+  transfers(first: 5, orderBy: blockNumber, orderDirection: desc) {
+    id
+    from
+    to
+    value
+    blockNumber
+    blockTimestamp
+    transactionHash
+  }
+}
+```
+
+Paste it into the editor and press **Ctrl-Enter** (or the ▶ button) — it returns `_meta.block.number` at (or near) Base Sepolia's live head, plus the 5 most recent real testnet USDC `Transfer` events, with no fixture data and no mocking involved.
+
+Or query it directly from a terminal:
+
+```bash
+curl -s -X POST https://api.studio.thegraph.com/query/1758823/xander/v0.0.3 \
+  -H "Content-Type: application/json" \
+  -d '{"query":"{ _meta { block { number } } transfers(first:5, orderBy: blockNumber, orderDirection: desc) { id from to value blockNumber } }"}'
+```
+
+The proxy-admin events the scaffold originally indexed are also queryable, using the pluralized, lowercase-first field names AssemblyScript generates from the schema:
+
+```graphql
+{
+  adminChangeds(first: 5) { id previousAdmin newAdmin blockNumber }
+  upgradeds(first: 5) { id implementation blockNumber }
+}
+```
 
 ## World ID — Selfie Check as a selective signal
 
