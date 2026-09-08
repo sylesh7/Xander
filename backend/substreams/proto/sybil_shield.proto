@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package sybil_shield.v1;
+
+// One protobuf message per event type, per the substreams-ethereum hard rule.
+// A single generic "Event" message with sparse optional fields would give sinks
+// and SQL consumers an opaque bag instead of a stable per-event schema.
+
+// An ERC-20 Transfer log, fully decoded.
+//
+// `value` is a decimal STRING, not a uint64. ERC-20 amounts are uint256 and
+// silently truncate in 64 bits — an 18-decimal token overflows at ~18.4 tokens.
+// This matches EvidenceEvent.amount, which is also a string for the same reason.
+message Erc20Transfer {
+  uint64 block_number = 1;
+  uint64 timestamp = 2;
+  string tx_hash = 3;
+  uint32 log_index = 4;
+  // The token contract that emitted the Transfer.
+  string contract = 5;
+  string from = 6;
+  string to = 7;
+  string value = 8;
+}
+
+// A native-currency (ETH) value transfer from a transaction trace.
+//
+// Kept separate from ERC-20 because it is a genuinely different signal: a funder
+// bankrolling a Sybil cluster typically sends plain ETH for gas, which emits no
+// log at all and therefore never appears in the ERC-20 feed. A pipeline watching
+// only Transfer logs is blind to the most common funding pattern.
+message NativeTransfer {
+  uint64 block_number = 1;
+  uint64 timestamp = 2;
+  string tx_hash = 3;
+  uint32 transaction_index = 4;
+  string from = 5;
+  string to = 6;
+  string value = 7;
+}
+
+// The module output: both feeds for one block.
+message FundingTransfers {
+  uint64 block_number = 1;
+  uint64 timestamp = 2;
+  repeated Erc20Transfer erc20 = 3;
+  repeated NativeTransfer native = 4;
+}

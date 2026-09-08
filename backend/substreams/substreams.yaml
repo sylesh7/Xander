@@ -1,0 +1,55 @@
+specVersion: v0.1.0
+
+package:
+  name: sybil_shield_substreams
+  version: v0.1.0
+  url: https://github.com/Suganthan96/Xander
+  doc: |
+    Real-time funding evidence for the Sybil Shield firewall.
+
+    Emits decoded ERC-20 Transfer logs and native-value transfers, filtered to a
+    watch list passed as a module parameter. Consumed by the Phase 10 Node sink,
+    which normalizes both into EvidenceEvent rows.
+
+    Scope is deliberately narrow: this decodes and filters. Clustering, feature
+    extraction and scoring stay in the TypeScript engine, where a policy change
+    does not mean recompiling WASM and resyncing.
+
+# No entity/graph_out import: substreams-entity-change 2.0.0 (its latest
+# release) pins `substreams ^0.6`, incompatible with the `substreams ^0.7` this
+# module builds against, and links two copies of the crate into one WASM
+# binary. Not needed anyway — the current substreams-sink guide consumes the
+# typed FundingTransfers protobuf directly over gRPC (Phase 10), never through
+# EntityChanges/a subgraph.
+
+protobuf:
+  files:
+    - sybil_shield.proto
+  importPaths:
+    - ./proto
+
+binaries:
+  default:
+    type: wasm/rust-v1
+    file: ./target/wasm32-unknown-unknown/release/sybil_shield_substreams.wasm
+
+network: mainnet
+
+modules:
+  - name: map_funding_transfers
+    kind: map
+    initialBlock: 21000000
+    inputs:
+      # Comma-separated lower-case addresses to watch. Config, not a hardcoded
+      # list (Section 0.2 rule 1) — changing campaign is a parameter change.
+      #
+      # EMPTY MEANS EMIT EVERYTHING. That is fine for a short backfill and
+      # ruinous at head: every ERC-20 transfer on Ethereum. Always pass a list
+      # when tailing live.
+      - params: string
+      - source: sf.ethereum.type.v2.Block
+    output:
+      type: proto:sybil_shield.v1.FundingTransfers
+
+params:
+  map_funding_transfers: ''

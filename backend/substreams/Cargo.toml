@@ -1,0 +1,36 @@
+[package]
+name = "sybil-shield-substreams"
+version = "0.1.0"
+edition = "2021"
+description = "Real-time funding-transfer evidence for the Sybil Shield firewall"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+# substreams-entity-change 2.0.0 (the latest release) pins `substreams ^0.6`,
+# which is semver-incompatible with `substreams ^0.7` here — two copies of the
+# substreams crate end up in one WASM binary and the linker fails with
+# "symbol multiply defined" on the crate's global allocator export. There is
+# no compatible entity-change release to pin against, and the current
+# streamingfast/substreams-skills substreams-sink guide (2026) does not use
+# EntityChanges for a custom app sink anyway — Phase 10 consumes the typed
+# FundingTransfers protobuf directly over gRPC with @substreams/core, so
+# EntityChanges was never actually needed. Dropped, not worked around.
+[dependencies]
+substreams = "0.7"
+substreams-ethereum = "0.11"
+prost = "0.13"
+prost-types = "0.13"
+hex-literal = "0.4"
+
+[build-dependencies]
+prost-build = "0.13"
+
+[target.wasm32-unknown-unknown.dependencies]
+getrandom = { version = "0.2", features = ["custom"] }
+
+[profile.release]
+lto = true
+opt-level = 's'
+strip = "debuginfo"
