@@ -52,6 +52,7 @@ The full schema lives in `Backend-Suganthan.md` Section 0.4 and in `db/prisma/sc
 
 **Schema change log** (Section 0.4 is owned by `Backend-Suganthan.md`; this list exists so you are never surprised by a migration):
 - *2026-09-07, Phase 5* — `EvidenceEvent` gained `@@unique([transactionHash, eventType, wallet, sourceId])`. Needed for the idempotent upsert Phase 5 requires; there was no unique key to upsert against. Affects a model your track only reads, so nothing on your side changes. Migration `add_evidence_event_unique`.
+- *2026-09-08, Phase 10* — new model `SubstreamsCursor` (chain, moduleName, cursor, blockNumber). Required to satisfy Phase 10's own acceptance test ("kill and restart the sink mid-stream, confirm it resumes from the saved cursor") and there was nowhere to persist one. Suganthan-track-only; your side never reads or writes it. Migration `add_substreams_cursor`.
 
 One field to know cold: `VerificationChallenge.nullifier` is `Decimal @db.Decimal(78, 0)` — World ID nullifiers are 256-bit ints returned as `0x`-hex strings; convert to decimal before storing, Postgres has no native 256-bit int type.
 

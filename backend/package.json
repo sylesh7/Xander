@@ -22,14 +22,21 @@
     "db:studio": "prisma studio",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "infra:up": "docker compose up -d",
-    "infra:down": "docker compose down"
+    "infra:down": "docker compose down",
+    "substreams:pack": "docker run --rm -v \"$(pwd)/substreams:/work\" -w /work ghcr.io/streamingfast/substreams:v1.22.0 pack ./substreams.yaml -o ./sybil_shield_substreams-v0.1.0.spkg",
+    "substreams:run": "node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/sybil_shield_substreams-v0.1.0.spkg"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"
   },
   "dependencies": {
+    "@connectrpc/connect": "^1.3.0",
+    "@connectrpc/connect-node": "^1.3.0",
     "@prisma/client": "^6.1.0",
+    "@substreams/core": "^0.16.0",
+    "bullmq": "^6.3.4",
     "express": "^4.21.2",
+    "ioredis": "^6.0.0",
     "pino": "^9.6.0",
     "zod": "^3.24.1"
   },

@@ -106,13 +106,13 @@ reproducible.
 
 ### Gateway status codes worth distinguishing
 
-| Code | Meaning |
-|---|---|
-| 401 / 403 | Key missing, disabled, or outside its subgraph/domain allow-list |
-| 429 | Key's rate limit or monthly cap reached |
-| **402** | **Gateway escrow unfunded, or its sender not whitelisted by Indexers** |
+| Code      | Meaning                                                                |
+| --------- | ---------------------------------------------------------------------- |
+| 401 / 403 | Key missing, disabled, or outside its subgraph/domain allow-list       |
+| 429       | Key's rate limit or monthly cap reached                                |
+| **402**   | **Gateway escrow unfunded, or its sender not whitelisted by Indexers** |
 
-402 is *not* an auth failure — the credential is fine, the payment path is not.
+402 is _not_ an auth failure — the credential is fine, the payment path is not.
 Conflating them sends an operator hunting a key problem that does not exist.
 
 ### API key restrictions (set in Studio)
@@ -185,48 +185,161 @@ does not match the pinned value in `DeploymentRegistryEntry`.
 
 ## Substreams (Phases 9–10 — real-time, locked P0)
 
-Confirmed real crates:
+**Built and verified live on real mainnet blocks, 2026-09-08.** Everything
+below is confirmed from the actual build and a real streaming run, not the
+spec's scaffold alone.
 
-```toml
-substreams = "0.7"
-substreams-ethereum = "0.11"
-prost = "0.11"
+### Toolchain
+
+The `substreams` CLI ships **no native Windows binary** (v1.22.0 releases:
+darwin_arm64, darwin_x86_64, linux_arm64, linux_x86_64 — nothing else). Use
+the official Docker image:
+
+```
+docker run --rm ghcr.io/streamingfast/substreams:v1.22.0 --version
 ```
 
-`crate-type = ["cdylib"]`, target `wasm32-unknown-unknown`. Full `Cargo.toml` and
-`substreams.yaml` are in `Backend-Suganthan.md` Phase 9 — copy them from there.
+`protoc` has no package-manager entry on a bare Windows box either — fetch the
+release zip from `protocolbuffers/protobuf` directly and point `prost-build`
+at it via `PROTOC=<path>`.
 
-Manifest essentials: `specVersion: v0.1.0`, imports the
-`substreams-entity-change` spkg, and exposes a `graph_out` map module whose
-output type is `proto:substreams.entity.v1.EntityChanges`.
+`rustup target add wasm32-unknown-unknown` is required before the first build.
 
-Confirmed real sink packages from pinax-network: **`substreams-sink-webhook`**
-(Node/Bun) or **`substreams-sink`** (generic Node CLI).
+### Crate versions — confirmed on crates.io 2026-09-08
 
-Scope the Rust module narrowly: emit new funding transfers and new claim/reward
-events only. Do not reimplement the risk engine inside the WASM module.
+```toml
+substreams = "0.7"            # 0.7.6 latest — matches the spec
+substreams-ethereum = "0.11"  # 0.11.1 latest — matches the spec
+prost = "0.13"                 # NOT 0.14 — see below
+prost-types = "0.13"
+prost-build = "0.13"           # build-dependency
+```
 
-Three things the bridge must do (Phase 10):
+**`prost` must be pinned to `0.13`, not `0.14`.** `substreams 0.7.6` is built
+against `prost 0.13`'s `Message` trait. Pinning `prost = "0.14"` compiles
+clean in isolation but fails at the `#[substreams::handlers::map]` call site
+with "the trait bound `T: prost::message::Message` is not satisfied" — two
+different major lines of the same crate define incompatible `Message` traits,
+and generated proto types from 0.14 do not satisfy 0.13's bound.
 
-1. Verify `SUBSTREAMS_WEBHOOK_SECRET`.
-2. **Persist the cursor** so a restart resumes instead of reprocessing.
-3. **Handle reorgs** — the sink's "undo" signal must roll back the corresponding
-   `EvidenceEvent` rows. Not optional.
+**Do not add `substreams-entity-change`.** Its only release since 2024
+(`2.0.0`) pins `substreams ^0.6`, semver-incompatible with `substreams ^0.7`.
+Two copies of the `substreams` crate link into one WASM binary and fail with
+"symbol multiply defined" on the crate's global allocator export — an LTO
+linker error, not a version-resolution error, so `cargo tree` is what surfaces
+the real cause (`cargo tree -i substreams@0.6.4`). There is no compatible
+release. It is also not needed: a custom app sink (this project's shape)
+consumes the typed module output directly over gRPC — `graph_out`/
+`EntityChanges` exists for a Substreams-powered _subgraph_, which this
+architecture does not build.
+
+`crate-type = ["cdylib"]`, target `wasm32-unknown-unknown`. Real
+`Cargo.toml`/`substreams.yaml` live in `backend/substreams/` — a working,
+tested reference, not just a scaffold.
+
+### Building and running
+
+```bash
+# Pack — always via the Docker image on Windows
+docker run --rm -v "$(pwd)/substreams:/work" -w /work \
+  ghcr.io/streamingfast/substreams:v1.22.0 pack ./substreams.yaml \
+  -o ./sybil_shield_substreams-v0.1.0.spkg
+
+# Run — CLI flags that differ from casual assumption:
+#   -e/--endpoint is a FLAG, not positional
+#   -s/-t take a string; -t accepts a bare number OR +N relative to -s
+docker run --rm -e SUBSTREAMS_API_TOKEN="$TOKEN" \
+  ghcr.io/streamingfast/substreams:v1.22.0 \
+  run -e eth.substreams.pinax.network:443 <spkg> <module> -s 21000000 -t +5 -o jsonl
+```
+
+### JavaScript consumer SDK — confirmed against the installed package, not the docs example
+
+```bash
+npm install @substreams/core@0.16.0 @connectrpc/connect@1.3.0 @connectrpc/connect-node@1.3.0
+```
+
+Versions confirmed live on npm (`@substreams/core@0.16.0` peers
+`@connectrpc/connect@^1.3.0`) — these are current, not stale pins.
+
+**Three places the skill's illustrative example diverges from the real
+`.d.ts` files** (found by typechecking against the installed package):
+
+1. **`createRequest` has no `params` field.** Module parameters are NOT set on
+   the request. They are applied to the package's modules first:
+   ```ts
+   applyParams([`${moduleName}=${value}`], pkg.modules?.modules ?? []);
+   // THEN createRequest({ substreamPackage: pkg, ... })
+   ```
+2. **`createGrpcTransport` requires `httpVersion: '2'`.** `NodeTransportOptions`
+   is a discriminated union on that field with no default.
+3. **`stopBlockNum` is `number | bigint | \`+\${number}\``— not`string`.** A
+plain numeric string like `"1000"`is a type error; only the`+N` relative
+   template-literal form is a string.
+
+**`fetchSubstream` cannot read a local file.** It calls the platform `fetch`
+internally, which does not implement `file://` on Node (`fetch failed: not
+implemented... yet...`, confirmed by running it). For a local `.spkg`, read the
+bytes with `fs.readFile` and parse with `createSubstream(bytes)` — the same
+function `fetchSubstream` calls once it has bytes in hand. Reserve
+`fetchSubstream` for an actual `http(s)/ipfs/gs` URL.
+
+**Unpack the map output with `unpackMapOutput(response, registry)`**, not
+manual `.output?.mapOutput` + `.toJson()` on the `Any` — the dedicated export
+exists precisely for this and handles the `Any` → typed message step.
+
+**A bounded run needs an explicit shutdown.** BullMQ's `Queue` (ioredis) and
+Prisma both hold long-lived connections that keep the Node process alive;
+neither closes on its own. A CLI using `--stop` finishes all its work
+correctly and then hangs forever without an explicit `queue.close()` +
+`prisma.$disconnect()` in a `finally`. Confirmed by running it.
+
+**`BlockRef.number` is a `bigint`, not `.num`.** The skill's own doc flags
+this: `lastValidBlock.num` in some example code is a real upstream bug that
+silently prints `undefined`. The field is `number`.
+
+Scope the Rust module narrowly: emit new funding transfers only. Do not
+reimplement the risk engine inside the WASM module.
+
+Three things the bridge must do (Phase 10) — all built, all verified live:
+
+1. **Persist the cursor** so a restart resumes instead of reprocessing.
+   Verified: re-running an identical block range against an already-persisted
+   cursor produced zero new rows — the server resumed past it.
+2. **Handle reorgs** — the sink's "undo" signal must roll back the
+   corresponding `EvidenceEvent` rows, then rewind the cursor. Verified against
+   real Postgres with a synthetic undo signal.
+3. **Enqueue cache invalidation** only when new rows were actually written —
+   a replayed block should not wake Sylesh's cache worker for nothing.
+
+### Verified live run
+
+```
+5 blocks from mainnet block 21000000 (substreams run, Phase 9 acceptance test):
+  928 ERC-20 transfers + 316 native transfers, fully decoded.
+
+3 blocks through the full Phase 10 Node consumer, empty DB:
+  1536 EvidenceEvents written, cursor persisted at block 21000002.
+
+SAME 3-block range re-run with the cursor already there:
+  1536 rows — unchanged. The server resumed past the cursored range.
+  This is resume-from-cursor PROVEN against a live endpoint, not asserted.
+```
 
 ### Endpoints — verified reachable 2026-09-08
 
 gRPC `host:port`. **No `https://` prefix** — that is the most common mistake and
 the resulting failure is opaque.
 
-| Chain | Pinax | StreamingFast |
-|---|---|---|
-| Ethereum mainnet | `eth.substreams.pinax.network:443` | `mainnet.eth.streamingfast.io:443` |
-| Ethereum Sepolia | `sepolia.substreams.pinax.network:443` | `sepolia.eth.streamingfast.io:443` |
-| Base | `base.substreams.pinax.network:443` | `base-mainnet.streamingfast.io:443` |
-| Polygon | `polygon.substreams.pinax.network:443` | `polygon.streamingfast.io:443` |
-| Arbitrum One | `arbone.substreams.pinax.network:443` | `arb-one.streamingfast.io:443` |
-| BSC | `bsc.substreams.pinax.network:443` | `bnb.streamingfast.io:443` |
-| Optimism | — | `mainnet.optimism.streamingfast.io:443` |
+| Chain            | Pinax                                  | StreamingFast                           |
+| ---------------- | -------------------------------------- | --------------------------------------- |
+| Ethereum mainnet | `eth.substreams.pinax.network:443`     | `mainnet.eth.streamingfast.io:443`      |
+| Ethereum Sepolia | `sepolia.substreams.pinax.network:443` | `sepolia.eth.streamingfast.io:443`      |
+| Base             | `base.substreams.pinax.network:443`    | `base-mainnet.streamingfast.io:443`     |
+| Polygon          | `polygon.substreams.pinax.network:443` | `polygon.streamingfast.io:443`          |
+| Arbitrum One     | `arbone.substreams.pinax.network:443`  | `arb-one.streamingfast.io:443`          |
+| BSC              | `bsc.substreams.pinax.network:443`     | `bnb.streamingfast.io:443`              |
+| Optimism         | —                                      | `mainnet.optimism.streamingfast.io:443` |
 
 **Holesky is sunset** — `holesky.substreams.pinax.network` no longer resolves.
 Do not re-add it.

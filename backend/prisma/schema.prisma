@@ -161,3 +161,21 @@ model EvidenceReceipt {
   worldChallengeId  String?
   createdAt         DateTime @default(now())
 }
+
+// Phase 10.2/10.4. One row per (chain, moduleName) stream. The cursor is an
+// OPAQUE string per the Substreams sink contract — never parsed, only stored
+// and replayed. Persisted AFTER a batch's evidence is durably written, never
+// before: if the process dies between those two writes, the block is
+// reprocessed on restart rather than silently skipped. blockNumber is kept
+// alongside the cursor purely for /health reporting (Phase 11) — the cursor,
+// not this number, is what the stream actually resumes from.
+model SubstreamsCursor {
+  id          String   @id @default(cuid())
+  chain       String
+  moduleName  String
+  cursor      String
+  blockNumber BigInt
+  updatedAt   DateTime @updatedAt
+
+  @@unique([chain, moduleName])
+}

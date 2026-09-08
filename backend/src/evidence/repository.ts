@@ -8,7 +8,6 @@
  * Phase 5 acceptance test: "feed the same Token API response through twice; the
  * second write is a no-op."
  */
-import { Prisma } from '@prisma/client'
 import { logger } from '../lib/logger.js'
 import { prisma } from '../lib/prisma.js'
 import type { NormalizedEvidenceEvent } from './types.js'
@@ -84,17 +83,16 @@ export async function persistEvidenceEvents(
  * Sylesh's cache worker for nothing.
  */
 export async function persistEvidenceEvent(event: NormalizedEvidenceEvent): Promise<boolean> {
-  try {
-    await prisma.evidenceEvent.create({ data: event })
-    return true
-  } catch (err) {
-    // P2002 = unique constraint violation. Expected on a replayed event, not an
-    // error worth surfacing.
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      return false
-    }
-    throw err
-  }
+  // createMany + skipDuplicates rather than create() + catch(P2002): a
+  // replayed event is a routine, expected outcome on this path (Phase 10's
+  // stream resumes at the start of a block on every reconnect, so the tail of
+  // the previous session is reprocessed by design) — not an exceptional one.
+  // Prisma logs every query error globally regardless of whether the caller
+  // catches it, so throwing on every duplicate under normal operation would
+  // spam error-level logs for something that isn't an error. createMany never
+  // throws for a duplicate; it just doesn't create the row.
+  const { count } = await prisma.evidenceEvent.createMany({ data: [event], skipDuplicates: true })
+  return count === 1
 }
 
 /**

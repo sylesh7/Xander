@@ -20,12 +20,12 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 6     | Behavior Graph & Clustering                         | ✅ **Done**                                                                    |
 | 7     | Risk Engine: feature extractors                     | ✅ **Done**                                                                    |
 | 8     | Robust baselines, scoring, policy bands             | ✅ **Done**                                                                    |
-| 9     | Substreams Rust module                              | ⬜ **NEXT** — long pole; needs SUBSTREAMS_ENDPOINT                             |
-| 10    | Substreams Node bridge + cache invalidation         | ⬜ Not started — blocked on 9                                                  |
-| 11    | Provenance & freshness guarantees                   | ⬜ Not started                                                                 |
+| 9     | Substreams Rust module                              | ✅ **Done — verified live on real mainnet blocks**                             |
+| 10    | Substreams Node bridge + cache invalidation         | ✅ **Done — verified live, cursor resume proven, reorg tested**                |
+| 11    | Provenance & freshness guarantees                   | ⬜ **NEXT**                                                                    |
 | 12    | Testing, seed data, Sylesh interface                | 🟡 Partial — interface stubbed early; real bodies land after 8                 |
 
-**8 of 12 done. 168 tests passing. The engine now produces verdicts.**
+**10 of 12 done. 191 tests passing. Real-time evidence is live.**
 
 ----- | --------------------------------------------------- | ----------------------------------------------- |
 | 1 | Access & credentials (Graph) + local infra | 🟡 Partial — infra done, credentials pending |
@@ -36,9 +36,9 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 6 | Behavior Graph & Clustering | ⬜ Not started — _no credentials needed_ |
 | 7 | Risk Engine: feature extractors | ✅ **Done** |
 | 8 | Robust baselines, scoring, policy bands | ✅ **Done** |
-| 9 | Substreams Rust module | ⬜ **NEXT** — long pole; needs SUBSTREAMS_ENDPOINT |
-| 10 | Substreams Node bridge + cache invalidation | ⬜ Not started — blocked on 9 |
-| 11 | Provenance & freshness guarantees | ⬜ Not started |
+| 9 | Substreams Rust module | ✅ **Done — verified live on real mainnet blocks** |
+| 10 | Substreams Node bridge + cache invalidation | ✅ **Done — verified live, cursor resume proven, reorg tested** |
+| 11 | Provenance & freshness guarantees | ⬜ **NEXT** |
 | 12 | Testing, seed data, Sylesh interface | 🟡 Partial — interface stubbed early, see below |
 
 ---
@@ -470,6 +470,146 @@ The weights are **a configurable demo policy, not a validated model**. They were
 not fitted against labelled Sybil data and no precision figure exists. The
 defensible claim is the stronger one: every number is an inspectable row and
 every decision replays exactly.
+
+---
+
+## ✅ Phase 9 — Done, verified on live mainnet data
+
+`backend/substreams/` — a real Rust crate, compiled to `wasm32-unknown-unknown`,
+packed into a valid `.spkg`, and run against live Ethereum mainnet through your
+own credentials.
+
+```
+$ substreams run -e eth.substreams.pinax.network:443 sybil_shield_substreams-v0.1.0.spkg map_funding_transfers -s 21000000 -t +5
+Blocks to process in requested range: 5
+928 ERC-20 transfers + 316 native transfers, fully decoded, real values
+```
+
+`map_funding_transfers` decodes ERC-20 `Transfer` logs (filtered by topic0,
+value read as `uint256` → decimal string via `BigInt`, never `u64` — an
+18-decimal token overflows 64 bits at ~18.4 tokens) and native-currency
+transfers from transaction traces (status `SUCCEEDED` only — a reverted
+transaction moves no value and would invent evidence). A watch-list module
+parameter keeps the addresses being tracked as config, not a recompile.
+
+### Two real toolchain problems, not typos
+
+1. **`protoc` was not installed** and has no package-manager entry on this
+   machine. Fetched the official release zip directly, pointed at it via
+   `PROTOC=`.
+2. **`substreams-entity-change 2.0.0`** — its only release since 2024 — pins
+   `substreams ^0.6`, incompatible with the `substreams ^0.7` this module
+   builds against. Two copies of the crate linked into one WASM binary and the
+   linker failed with "symbol multiply defined" on the crate's global
+   allocator. There is no compatible release to pin against. Checked whether
+   it was even needed first: the current `substreams-sink` guide does not
+   route a custom app sink through `EntityChanges` at all — Phase 10 consumes
+   the typed protobuf directly over gRPC. Dropped `graph_out`/`EntityChanges`
+   rather than patching around a dependency that was never required.
+
+**Toolchain note:** the `substreams` CLI ships no native Windows binary.
+`ghcr.io/streamingfast/substreams:v1.22.0` (official image) built and ran
+everything here.
+
+Installed `streamingfast/substreams-skills` (marketplace + `substreams-dev`
+plugin) before starting, per the prize track's own recommendation.
+
+---
+
+## ✅ Phase 10 — Done, verified live: resume-from-cursor and reorg both proven
+
+`src/graph/substreams/{stream,cursor,invalidation-queue,endpoints,run}.ts` —
+the bridge from the Phase 9 WASM module to the Phase 5 evidence repository.
+
+Built directly against `@substreams/core` + `@connectrpc/connect-node`
+(pinned `0.16.0` / `1.3.0`) rather than a third-party webhook-relay package —
+the current `substreams-sink` skill documents exactly this as the current
+pattern for a custom app sink, and cursor/reorg handling live in the consumer
+either way, so a relay package adds a hop without removing work.
+
+**Every type in `stream.ts` was checked against the installed package**, not
+assumed from the skill's illustrative example. Three places the example and
+the real `.d.ts` disagreed:
+
+- `createRequest` has no `params` option — module parameters go through
+  `applyParams(["module=value"], pkg.modules.modules)` before building the
+  request.
+- `createGrpcTransport` requires `httpVersion: '2'` — the example omits it.
+- `stopBlockNum` is typed `number | bigint | \`+\${number}\`` — a plain numeric
+  string is a type error.
+
+### Verified live, three separate real runs
+
+```
+RUN 1 (blocks 21000000-002, empty DB): 1536 EvidenceEvents written,
+  cursor persisted at 21000002, exit code 0.
+
+RUN 2 (SAME range, cursor already at 002): 1536 rows — UNCHANGED.
+  Server-side resumed past the cursored range and reprocessed nothing.
+  THIS IS RESUME-FROM-CURSOR, PROVEN, NOT ASSERTED.
+
+REORG TEST (handleUndo against real Postgres): 3 rows across blocks
+  100/200/300 -> rollback to 100 -> 1 row remains, cursor rewound
+  to the undo signal's cursor.
+```
+
+### Three real bugs the tests and live runs caught
+
+1. **`fetchSubstream` cannot read a local file.** It calls the platform
+   `fetch`, which does not support `file://` on Node — confirmed by running
+   it: `"fetch failed: not implemented... yet..."`. Added `loadPackage()`,
+   which reads local paths directly and parses them with `createSubstream`
+   (the same function `fetchSubstream` uses internally once bytes exist), and
+   only sends an actual `http(s)/ipfs/gs` URL through `fetchSubstream`.
+2. **The CLI never exited.** BullMQ's `Queue` holds an `ioredis` connection
+   open and Prisma holds its pool open; neither closes itself. A bounded
+   (`--stop`) run hung indefinitely after finishing all its work correctly.
+   Fixed with an explicit `shutdown()` closing both on completion.
+3. **`bullmq` needs `ioredis` as a real dependency**, not bundled — the first
+   live run failed at the enqueue step with `BullMQ could not load the
+optional 'ioredis' package`. Installed.
+
+### One design change after seeing live logging noise
+
+`persistEvidenceEvent` originally used `create()` + catch-`P2002`. Live
+running showed this spams Prisma's global error log on every routine replay —
+Prisma logs query errors regardless of whether the caller catches them, and a
+replayed event is the EXPECTED case here (Phase 10 resumes at the start of a
+block on every reconnect). Switched to `createMany` + `skipDuplicates`, which
+never throws for a duplicate. Quieter, and arguably more correct: an expected
+outcome should not be modeled as an exception.
+
+### Cursor and reorg discipline
+
+- **Golden Rule 1** — cursor persisted only AFTER evidence is durably written.
+  A crash mid-block reprocesses it on restart; Phase 5's idempotent upsert
+  makes that free.
+- **Golden Rule 4** — one cursor per `(chain, moduleName)`, enforced by a
+  unique constraint, tested directly.
+- **Reorg** — `handleUndo` rolls back `EvidenceEvent` rows above the last
+  valid block, THEN rewrites the cursor, in that order, for the identical
+  after-not-before reason as the happy path.
+- Cache invalidation is enqueued only when a block actually wrote new rows —
+  a replayed block does not wake Sylesh's cache worker for nothing.
+
+### Schema change — `SubstreamsCursor`
+
+```prisma
+model SubstreamsCursor {
+  id          String   @id @default(cuid())
+  chain       String
+  moduleName  String
+  cursor      String
+  blockNumber BigInt
+  updatedAt   DateTime @updatedAt
+  @@unique([chain, moduleName])
+}
+```
+
+Required by Phase 10's own acceptance test ("kill and restart the sink
+mid-stream, confirm it resumes from the saved cursor") — there was nowhere to
+persist one. Section 0.4 updated in `Backend-Suganthan.md`; change logged in
+`Backend-Sylesh.md`. Sylesh-track-only, never read or written by their side.
 
 ---
 

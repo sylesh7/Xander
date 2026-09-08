@@ -133,18 +133,21 @@ deleted. Import the constants rather than pasting the literals.
 
 ## 6. What Sylesh needs from Suganthan, and when
 
-| Sylesh needs                                         | To unblock                | Status                                                            |
-| ---------------------------------------------------- | ------------------------- | ----------------------------------------------------------------- |
-| `evidence-risk-api.ts` signatures                    | Phases 14, 20, 22         | Available now (stubbed)                                           |
-| `RISK_INVALIDATION_QUEUE` name + payload             | Phase 14 cache worker     | Available now                                                     |
-| Migrated Postgres with all 11 models                 | Phases 20, 21, 22         | Available now                                                     |
-| Redis running                                        | Phase 14                  | Available now                                                     |
-| `GRAPH_GATEWAY_API_KEY`                              | Phase 15 (Subgraph MCP)   | Pending — Suganthan Phase 1.2, **hand over the moment it exists** |
-| Real risk scores                                     | Phase 24 integration test | Pending — Suganthan Phases 3–11                                   |
-| Live queue producer                                  | Phase 14 end-to-end test  | Pending — Suganthan Phase 10                                      |
-| Seeded `RiskThreshold` / active `PolicyVersion` rows | Phase 20 policy bands     | Pending — Suganthan Phase 8                                       |
+| Sylesh needs                                         | To unblock                | Status                                                                                                                                                                                                                                  |
+| ---------------------------------------------------- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `evidence-risk-api.ts` signatures                    | Phases 14, 20, 22         | Available now (stubbed)                                                                                                                                                                                                                 |
+| `RISK_INVALIDATION_QUEUE` name + payload             | Phase 14 cache worker     | Available now                                                                                                                                                                                                                           |
+| Migrated Postgres with all 11 models                 | Phases 20, 21, 22         | Available now                                                                                                                                                                                                                           |
+| Redis running                                        | Phase 14                  | Available now                                                                                                                                                                                                                           |
+| `GRAPH_GATEWAY_API_KEY`                              | Phase 15 (Subgraph MCP)   | ✅ Available — verified live, hand it over                                                                                                                                                                                              |
+| Real risk scores                                     | Phase 24 integration test | ✅ Available — real scoring engine, not the stub, from Phase 8                                                                                                                                                                          |
+| Live queue producer                                  | Phase 14 end-to-end test  | ✅ **Available — verified live.** `enqueueRiskInvalidation` fires from the real Substreams stream after every block with new evidence; confirmed against real Redis with `bull:risk-invalidation:*` populated during a live mainnet run |
+| Seeded `RiskThreshold` / active `PolicyVersion` rows | Phase 20 policy bands     | ✅ Available — `PolicyVersion` `1.0` active in Postgres                                                                                                                                                                                 |
 
-**Only one item on this list is a hard cross-track blocker: the Gateway API key.**
+**Every item on this list is now available.** The remaining gap is Phase 12:
+`getOrComputeClusterRisk`/`refreshWalletEvidence` are still the typed stub —
+everything underneath them (Phases 3–11) is real and live, but the seam
+Sylesh actually imports from has not been swapped over yet.
 Everything else Sylesh needs in order to _start_ is already in place.
 
 ---
