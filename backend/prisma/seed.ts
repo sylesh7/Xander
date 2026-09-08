@@ -316,7 +316,7 @@ async function seedSylesh(): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  logger.info('seeding sybil_shield…')
+  logger.info('seeding xander…')
   await seedSuganthan()
   await seedSylesh()
   logger.info('seed complete')

@@ -3,25 +3,25 @@
 services:
   postgres:
     image: postgres:16
-    container_name: sybil-shield-postgres
+    container_name: xander-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: pass
-      POSTGRES_DB: sybil_shield
+      POSTGRES_DB: xander
     ports:
       - '5432:5432'
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U user -d sybil_shield']
+      test: ['CMD-SHELL', 'pg_isready -U user -d xander']
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7
-    container_name: sybil-shield-redis
+    container_name: xander-redis
     restart: unless-stopped
     ports:
       - '6379:6379'

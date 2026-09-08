@@ -45,6 +45,6 @@ app.get('/health', (_req, res) => {
 const entry = process.argv[1]
 if (entry && import.meta.url === pathToFileURL(entry).href) {
   app.listen(env.PORT, () => {
-    logger.info({ port: env.PORT }, 'sybil-shield backend listening')
+    logger.info({ port: env.PORT }, 'xander backend listening')
   })
 }
