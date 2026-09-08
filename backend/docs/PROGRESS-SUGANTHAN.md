@@ -25,7 +25,7 @@ Update this file at the end of each phase. Sylesh reads it to know what they can
 | 11    | Provenance & freshness guarantees                   | ✅ **Done** — verified live via `/health`                                      |
 | 12    | Testing, seed data, Sylesh interface                | ✅ **Done — the stub is gone, verified live**                                  |
 
-**ALL 12 PHASES DONE. 209 tests passing. The interface Sylesh imports from does real work.**
+**ALL 12 PHASES DONE. 212/212 tests passing. The interface Sylesh imports from does real work.**
 
 ---
 
