@@ -1,6 +1,7 @@
 // @ts-check
 import eslint from '@eslint/js'
 import tseslint from 'typescript-eslint'
+import globals from 'globals'
 
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**', 'prisma/migrations/**'] },
@@ -29,5 +30,12 @@ export default tseslint.config(
   {
     files: ['src/config/env.ts'],
     rules: { 'no-restricted-properties': 'off' },
+  },
+  {
+    // Plain Node scripts outside the TS project (e.g. scripts/substreams-pack.mjs)
+    // get no type-aware globals from tsconfig, so ESLint's no-undef otherwise
+    // flags `process`, `URL`, etc. as unrecognized.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: { globals: globals.node },
   },
 )

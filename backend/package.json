@@ -23,7 +23,7 @@
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
-    "substreams:pack": "docker run --rm -v \"$(pwd)/substreams:/work\" -w /work ghcr.io/streamingfast/substreams:v1.22.0 pack ./substreams.yaml -o ./sybil_shield_substreams-v0.1.0.spkg",
+    "substreams:pack": "node scripts/substreams-pack.mjs",
     "substreams:run": "node --env-file=.env --import tsx src/graph/substreams/run.ts --spkg substreams/sybil_shield_substreams-v0.1.0.spkg"
   },
   "prisma": {
