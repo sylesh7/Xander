@@ -1,4 +1,4 @@
-//! Sybil Shield Substreams — Backend-Suganthan.md Phase 9.
+//! Xander Substreams — Backend-Suganthan.md Phase 9.
 //!
 //! Emits real-time funding evidence: ERC-20 `Transfer` logs and native-value
 //! transfers, filtered to a watch list supplied as a module parameter.
@@ -14,7 +14,7 @@
 //! the same lesson; this keeps the streaming path consistent with it.
 
 mod pb {
-    include!(concat!(env!("OUT_DIR"), "/sybil_shield.v1.rs"));
+    include!(concat!(env!("OUT_DIR"), "/xander.v1.rs"));
 }
 
 use pb::{Erc20Transfer, FundingTransfers, NativeTransfer};

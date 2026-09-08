@@ -1,11 +1,11 @@
 specVersion: v0.1.0
 
 package:
-  name: sybil_shield_substreams
+  name: xander_substreams
   version: v0.1.0
   url: https://github.com/Suganthan96/Xander
   doc: |
-    Real-time funding evidence for the Sybil Shield firewall.
+    Real-time funding evidence for the Xander firewall.
 
     Emits decoded ERC-20 Transfer logs and native-value transfers, filtered to a
     watch list passed as a module parameter. Consumed by the Phase 10 Node sink,
@@ -24,14 +24,14 @@ package:
 
 protobuf:
   files:
-    - sybil_shield.proto
+    - xander.proto
   importPaths:
     - ./proto
 
 binaries:
   default:
     type: wasm/rust-v1
-    file: ./target/wasm32-unknown-unknown/release/sybil_shield_substreams.wasm
+    file: ./target/wasm32-unknown-unknown/release/xander_substreams.wasm
 
 # Base Sepolia, not mainnet: this is the hackathon build/demo target — cheap
 # 2s blocks, no real funds at risk while iterating, and `base` is already a
@@ -66,7 +66,7 @@ modules:
       - params: string
       - source: sf.ethereum.type.v2.Block
     output:
-      type: proto:sybil_shield.v1.FundingTransfers
+      type: proto:xander.v1.FundingTransfers
 
 params:
   map_funding_transfers: ''

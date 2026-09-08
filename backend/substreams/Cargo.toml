@@ -1,8 +1,8 @@
 [package]
-name = "sybil-shield-substreams"
+name = "xander-substreams"
 version = "0.1.0"
 edition = "2021"
-description = "Real-time funding-transfer evidence for the Sybil Shield firewall"
+description = "Real-time funding-transfer evidence for the Xander firewall"
 license = "Apache-2.0"
 
 [lib]

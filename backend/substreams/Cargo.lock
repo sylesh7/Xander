@@ -1074,19 +1074,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sybil-shield-substreams"
-version = "0.1.0"
-dependencies = [
- "getrandom 0.2.17",
- "hex-literal 0.4.1",
- "prost 0.13.5",
- "prost-build 0.13.5",
- "prost-types 0.13.5",
- "substreams",
- "substreams-ethereum",
-]
-
-[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1367,6 +1354,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "05f360fc0b24296329c78fda852a1e9ae82de9cf7b27dae4b7f62f118f77b9ed"
 dependencies = [
  "tap",
+]
+
+[[package]]
+name = "xander-substreams"
+version = "0.1.0"
+dependencies = [
+ "getrandom 0.2.17",
+ "hex-literal 0.4.1",
+ "prost 0.13.5",
+ "prost-build 0.13.5",
+ "prost-types 0.13.5",
+ "substreams",
+ "substreams-ethereum",
 ]
 
 [[package]]

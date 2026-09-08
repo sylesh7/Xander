@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package sybil_shield.v1;
+package xander.v1;
 
 // One protobuf message per event type, per the substreams-ethereum hard rule.
 // A single generic "Event" message with sparse optional fields would give sinks
