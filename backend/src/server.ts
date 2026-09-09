@@ -1,21 +1,24 @@
 /**
  * Express entrypoint.
  *
- * OWNERSHIP: Backend-Suganthan.md Section 0.5 assigns this file to SYLESH.
- * It exists now only to satisfy the Phase 2 acceptance test ("`npm run dev`
- * boots a bare Express server (even with zero routes) and `/health` returns
- * `{ ok: true }`").
+ * OWNERSHIP: Sylesh, from Phase 22 (Backend-Suganthan.md Section 0.5). The
+ * Phase 2 placeholder this replaced carried one instruction — preserve
+ * `/health` — and that route is unchanged below, including the shape Phase 11
+ * extended it with. Suganthan owns the data it reports; this file owns the
+ * route.
  *
- * Sylesh: this is yours from Phase 22 onward. Replace/extend freely — mount the
- * claim routes, auth middleware, rate limiting and zod validation here. The one
- * thing to preserve is /health, which Phase 11 extends with provenance data
- * (Token API last-success, per-deployment block lag, Substreams cursor lag).
+ * `/health` is deliberately the ONE unauthenticated route. An uptime check that
+ * needs a credential is a check that silently stops working when the credential
+ * rotates.
  */
 import express from 'express'
 import { pathToFileURL } from 'node:url'
 import { env } from './config/env.js'
 import { logger } from './lib/logger.js'
 import { getProvenanceHealth } from './provenance/health.js'
+import { apiRouter } from './claim/routes.js'
+import { errorHandler } from './claim/middleware.js'
+import { startInvalidationWorker } from './cache/invalidation-worker.js'
 
 export const app = express()
 
@@ -35,6 +38,13 @@ app.get('/health', (_req, res) => {
     })
 })
 
+// The Phase 22 claim gate. Auth, rate limiting and zod validation are applied
+// inside the router so no route can be added later that quietly skips them.
+app.use(apiRouter)
+
+// Must be last: Express selects error middleware by arity and by position.
+app.use(errorHandler)
+
 // Only listen when run directly, so tests can import `app` into supertest
 // without binding a port.
 //
@@ -47,4 +57,9 @@ if (entry && import.meta.url === pathToFileURL(entry).href) {
   app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'xander backend listening')
   })
+
+  // Started only in the real process, never on a supertest import — a test run
+  // that opened a live BullMQ consumer would drain jobs from a developer's
+  // queue and hold the event loop open after the suite finished.
+  startInvalidationWorker()
 }

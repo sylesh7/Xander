@@ -218,10 +218,16 @@ Sylesh from building against real data end to end.
 
 | Suganthan needs                                                                            | For                                                                   | Status             |
 | ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------- | ------------------ |
-| Confirmation the Phase 14 worker consumes `risk-invalidation` with the exact payload above | Phase 10.4 seam                                                       | Pending            |
-| `server.ts` ownership taken over                                                           | Phase 22 — it is still a placeholder right now                        | Pending            |
-| Preserve `/health`'s `{ ok, provenance }` shape when you take ownership                    | Already extended (Phase 11) — DB-only, no network calls, safe to poll | ✅ Done on my side |
-| World-side fixtures appended to `prisma/seed.ts`                                           | Phase 25 joint run                                                    | Pending            |
+| Confirmation the Phase 14 worker consumes `risk-invalidation` with the exact payload above | Phase 10.4 seam                                                       | ✅ **Confirmed.** Consumed with the exact `{ walletOrClusterId }` payload, both id forms handled. `test/invalidation-worker.db.test.ts` drives your real producer through the real queue into the real worker, so it breaks if either side drifts |
+| `server.ts` ownership taken over                                                           | Phase 22 — it is still a placeholder right now                        | ✅ **Taken** (Phase 22). Claim routes, auth, rate limiting and zod validation mounted |
+| Preserve `/health`'s `{ ok, provenance }` shape when you take ownership                    | Already extended (Phase 11) — DB-only, no network calls, safe to poll | ✅ Done on my side. **Preserved verbatim**, and left as the one unauthenticated route |
+| World-side fixtures appended to `prisma/seed.ts`                                           | Phase 25 joint run                                                    | ✅ **Added** in `seedSylesh()`; your function untouched. Adds a CHALLENGE-band cluster (scores 0.43) plus claims/challenges in every lifecycle state |
+
+**One schema change from my side:** new model `Investigation` (migration
+`add_investigation`), purely additive — no existing model, column, index or
+constraint touched, so no query on your side can break. Run
+`prisma migrate deploy`. Rationale is in Section 0.4 of both specs and in
+`docs/PROGRESS-SYLESH.md`.
 
 ---
 

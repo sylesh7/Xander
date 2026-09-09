@@ -1,7 +1,11 @@
 node_modules/
 dist/
+# Every .env variant EXCEPT the committed template. The previous pattern listed
+# .env and .env.local only, so an ordinary .env.bak or .env.production would
+# have been committed with real credentials in it.
 .env
-.env.local
+.env.*
+!.env.example
 *.log
 coverage/
 .DS_Store

@@ -195,6 +195,33 @@ model EvidenceReceipt {
   createdAt         DateTime @default(now())
 }
 
+// Added 2026-09-08 by SYLESH (Phase 15/22), migration `add_investigation`.
+// PURELY ADDITIVE — no existing model changed, so nothing in Phases 1-12 can
+// break on it; `prisma migrate deploy` is all that is needed on that side.
+//
+// Phase 15 still writes its RiskEvidence row (source: "mcp-investigation"), but
+// RiskEvidence is a numeric feature row with no column for a narrative, a wallet
+// list, or a tool-call trace — and Phase 22 requires GET /investigations/:id to
+// serve a real result. `citations` holds the agent's ACTUAL tool-call trace,
+// kept separate from its prose so an uncited report can be rejected rather than
+// trusted (Section 0.2 rule 5: the AI investigates, it never decides).
+model Investigation {
+  id           String    @id @default(cuid())
+  clusterId    String
+  wallets      Json // string[] — the wallet set handed to the agent
+  status       String // "RUNNING" | "COMPLETE" | "PARTIAL" | "FAILED"
+  summary      String? // the agent's narrative
+  citations    Json // [{ tool, args }] from the real tool-call trace
+  toolCalls    Int       @default(0)
+  model        String?
+  finishReason String?
+  error        String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
+
+  @@index([clusterId])
+}
+
 // Phase 10.2/10.4. One row per (chain, moduleName) stream. The cursor is an
 // OPAQUE string per the Substreams sink contract — never parsed, only stored
 // and replayed. Persisted AFTER a batch's evidence is durably written, never

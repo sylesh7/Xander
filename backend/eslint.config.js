@@ -32,6 +32,15 @@ export default tseslint.config(
     rules: { 'no-restricted-properties': 'off' },
   },
   {
+    // Build-tool config, not application code — the rule exists to keep every
+    // *request-serving* code path reading through the validated env.ts schema.
+    // vitest.config.ts reads process.env once, at config-load time, only to let
+    // a real credential loaded via `node --env-file=.env` (npm run test:live)
+    // take precedence over the fixed test placeholder below it.
+    files: ['vitest.config.ts'],
+    rules: { 'no-restricted-properties': 'off' },
+  },
+  {
     // Plain Node scripts outside the TS project (e.g. scripts/substreams-pack.mjs)
     // get no type-aware globals from tsconfig, so ESLint's no-undef otherwise
     // flags `process`, `URL`, etc. as unrecognized.

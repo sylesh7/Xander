@@ -133,8 +133,10 @@ const envSchema = z.object({
   PROTOCOL_SEQUENCE_MAX_LENGTH: num(200),
 
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
-  // Declared optional here so this track boots without World credentials.
-  // Sylesh: tighten these to required on your side and add any you're missing.
+  // Credentials stay optional at boot so the server starts without World
+  // access (Phase 13 is access-gated with no published SLA). Every one of them
+  // is read through a `require*` helper below, so a missing credential fails
+  // loudly at the point of use rather than silently sending no auth header.
   SUBGRAPH_MCP_URL: z.string().url().default('https://subgraphs.mcp.thegraph.com/sse'),
   WORLD_APP_ID: optionalStr(),
   WORLD_RP_ID: optionalStr(),
@@ -142,6 +144,114 @@ const envSchema = z.object({
   WORLD_ACTION_PREFIX: z.string().default('claim'),
   WORLD_VERIFY_BASE_URL: z.string().url().default('https://developer.world.org'),
   BACKEND_API_KEY: optionalStr(),
+
+  // --- Risk cache (Phase 14) ----------------------------------------------
+  /**
+   * TTL is a safety net, not the invalidation mechanism. Correctness comes
+   * from the explicit `risk-invalidation` eviction (Phase 14); this only bounds
+   * how long a cache entry can outlive an invalidation that never arrived.
+   */
+  RISK_CACHE_TTL_SECONDS: num(3600),
+  /** Turn the cache off to force every claim down the compute path. */
+  RISK_CACHE_ENABLED: boolFromString.default('true'),
+  /** Bounds how long a claim waits on an unreachable Redis before computing directly. */
+  RISK_CACHE_CONNECT_TIMEOUT_MS: num(2000),
+
+  // --- World escalation (Phases 16-20) ------------------------------------
+  /**
+   * Selfie Check's documented validity window. A PASSED challenge older than
+   * this is not reusable as "still verified" — Phase 20 re-issues instead.
+   */
+  WORLD_CHALLENGE_VALIDITY_DAYS: num(90),
+  /**
+   * How long an ISSUED challenge may sit unresolved before it is EXPIRED.
+   * Separate from the 90-day window above: that one governs a PASSED proof's
+   * reusability, this one governs an unanswered prompt.
+   */
+  WORLD_CHALLENGE_TTL_MINUTES: num(30),
+  /** Timeout for the call to World's verify endpoint (Phase 18). */
+  WORLD_VERIFY_TIMEOUT_MS: num(10_000),
+  /**
+   * Attempts for a TRANSIENT verify failure (timeout, 5xx, network). A definite
+   * rejection from World is never retried — it is an answer, not an outage.
+   */
+  WORLD_VERIFY_MAX_ATTEMPTS: num(3),
+
+  // --- Subgraph MCP investigation agent (Phase 15) ------------------------
+  /**
+   * Tool-call budget for one investigation. Phase 15 requires this to be
+   * bounded — an agent free to loop indefinitely against a metered gateway is
+   * both a cost and an availability problem.
+   */
+  MCP_INVESTIGATION_MAX_STEPS: num(8),
+  MCP_INVESTIGATION_TIMEOUT_MS: num(120_000),
+  /**
+   * Output-token ceiling for one investigation.
+   *
+   * Without this the provider default applies — 64000 tokens on the model
+   * router — which is absurd for a short grounded summary and is charged
+   * against the request budget up front. OpenRouter rejects the call outright
+   * (HTTP 402) when the reserved ceiling exceeds the remaining balance, so an
+   * uncapped run can fail before it makes a single tool call.
+   */
+  MCP_INVESTIGATION_MAX_OUTPUT_TOKENS: num(2000),
+  /**
+   * Which MCP tools the investigation agent may use, comma-separated. Empty
+   * means all of them.
+   *
+   * Every tool's JSON schema is sent on every model call, so the full set of
+   * nine costs ~6k prompt tokens before the agent does anything. The mandate
+   * here is narrow — find shared schemas, summarize the shared path — and these
+   * four cover it. Narrowing also keeps the agent from wandering into
+   * capabilities its instructions never authorized.
+   */
+  MCP_INVESTIGATION_TOOLS: z
+    .string()
+    .default(
+      'search_subgraphs_by_keyword,get_schema_by_deployment_id,execute_query_by_deployment_id,get_deployment_30day_query_counts',
+    ),
+  /**
+   * Model id for the investigation agent, in Mastra's `provider/model` routing
+   * form. Config, not code — swapping models must not require a redeploy.
+   */
+  MCP_INVESTIGATION_MODEL: z.string().default('openrouter/anthropic/claude-sonnet-4.5'),
+  /**
+   * OpenRouter credential for the investigation agent.
+   *
+   * Mastra's model router supports `openrouter` natively — it reads this exact
+   * variable name and sends `Authorization: Bearer <key>`, so no extra provider
+   * package is needed. Routing through OpenRouter means the model is a config
+   * change (`MCP_INVESTIGATION_MODEL`) rather than a dependency change.
+   *
+   * Declared here for validation and documentation; Mastra reads it from the
+   * process environment itself.
+   */
+  OPENROUTER_API_KEY: optionalStr(),
+  /**
+   * Path to a LOCAL `subgraph-mcp` binary, run over stdio instead of the hosted
+   * SSE endpoint. Optional; when empty, SUBGRAPH_MCP_URL is used.
+   *
+   * This exists because the hosted endpoint was verified broken on 2026-09-09:
+   * it accepts the connection (HTTP 200, `Content-Type: text/event-stream`) and
+   * then sends zero bytes, for a valid and an invalid Gateway key alike, so the
+   * MCP handshake never gets the `endpoint` event it needs. Confirmed against
+   * the official @modelcontextprotocol SDK as well as Mastra, with an unrelated
+   * public SSE stream working fine from the same machine — so it is the server,
+   * not the client or the network.
+   *
+   * The upstream server (graphops/subgraph-mcp, Rust) supports stdio natively:
+   *   cargo build --release  ->  target/release/subgraph-mcp
+   */
+  SUBGRAPH_MCP_COMMAND: optionalStr(),
+  /**
+   * Direct-to-Anthropic alternative. Only needed if MCP_INVESTIGATION_MODEL is
+   * switched from an `openrouter/*` id to a bare `anthropic/*` one.
+   */
+  ANTHROPIC_API_KEY: optionalStr(),
+
+  // --- API surface (Phase 22) ---------------------------------------------
+  RATE_LIMIT_WINDOW_MS: num(60_000),
+  RATE_LIMIT_MAX_REQUESTS: num(30),
 })
 
 export type Env = z.infer<typeof envSchema>
@@ -185,6 +295,59 @@ export function requireGraphGatewayApiKey(): string {
     )
   }
   return env.GRAPH_GATEWAY_API_KEY
+}
+
+/**
+ * The Relying Party id World issues alongside the app id (Sylesh Phase 16-18).
+ *
+ * `rp_id` is the primary identifier for the v4 verify endpoint; `app_id` is
+ * accepted only for backward compatibility, so it is the fallback rather than
+ * an equal alternative.
+ */
+export function requireWorldRpId(): string {
+  const id = env.WORLD_RP_ID ?? env.WORLD_APP_ID
+  if (!id) {
+    throw new Error(
+      'WORLD_RP_ID is not set. Register the app at developer.world.org (Phase 13.2) — ' +
+        'IDKit requests and POST /api/v4/verify/{rp_id} both need it.',
+    )
+  }
+  return id
+}
+
+/**
+ * The RP signing key (Sylesh Phase 16).
+ *
+ * Read ONLY on the server. IDKit's own documentation is explicit that this key
+ * must never reach the client; the whole reason POST /world/rp-signature exists
+ * as a backend route is to keep it here.
+ */
+export function requireWorldRpSigningKey(): string {
+  if (!env.WORLD_RP_SIGNING_KEY) {
+    throw new Error(
+      'WORLD_RP_SIGNING_KEY is not set. Without it signRequest() cannot sign, and IDKit ' +
+        'will not open on the client (Phase 16).',
+    )
+  }
+  return env.WORLD_RP_SIGNING_KEY
+}
+
+/**
+ * The shared API key guarding the routes that spend real upstream quota
+ * (Sylesh Phase 22).
+ *
+ * Absent config throws rather than defaulting to "open". An unauthenticated
+ * /screen-claim is a free, quota-burning proxy to the Token API and the
+ * Standardized Subgraphs gateway.
+ */
+export function requireBackendApiKey(): string {
+  if (!env.BACKEND_API_KEY) {
+    throw new Error(
+      'BACKEND_API_KEY is not set. The claim and World routes require an X-API-Key header ' +
+        'checked against it (Phase 22); serving them unauthenticated is not a supported mode.',
+    )
+  }
+  return env.BACKEND_API_KEY
 }
 
 export const isProduction = env.NODE_ENV === 'production'

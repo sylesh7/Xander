@@ -22,6 +22,21 @@ import {
   FIXTURE_CLUSTERED_WALLET,
   recomputeClusterForCandidates,
 } from '../src/interfaces/evidence-risk-api.js'
+// --- SYLESH (Phases 13-25) ---------------------------------------------------
+import {
+  FIXTURE_CAMPAIGN_ID,
+  FIXTURE_CHALLENGE_FUNDER,
+  FIXTURE_CHALLENGE_MATE,
+  FIXTURE_CHALLENGE_SHARED_COUNTERPARTY,
+  FIXTURE_CHALLENGE_STATE_WALLET,
+  FIXTURE_CHALLENGE_WALLET,
+  FIXTURE_EXPIRED_STATE_WALLET,
+  FIXTURE_FAILED_STATE_WALLET,
+  FIXTURE_PASSED_STATE_WALLET,
+} from '../src/claim/fixtures.js'
+import { buildWorldAction } from '../src/world/idkit-request-config.js'
+import { expectedSignalHash } from '../src/world/wallet-binding.js'
+import { nullifierToDecimalString } from '../src/world/replay-protection.js'
 
 /**
  * SUGANTHAN — Phase 12.1.
@@ -304,15 +319,171 @@ async function seedFixtureScenarios(): Promise<void> {
 /**
  * SYLESH — Phase 23. World-side fixtures.
  *
- * Suggested contents: a Claim in each decision state, a VerificationChallenge
- * in ISSUED/PASSED/FAILED/EXPIRED, and an EvidenceReceipt to serve from
- * GET /receipts/:id without hitting the Graph or World.
- *
- * Note VerificationChallenge.nullifier is Decimal(78,0) — convert World's
- * 0x-hex nullifier to decimal before storing.
+ * Two groups:
+ *   A. A real two-wallet cluster that SCORES into the CHALLENGE band. Suganthan's
+ *      fixtures cover ALLOW (clean) and BLOCK (the 0.85 ring); neither exercises
+ *      escalation, and CHALLENGE is the entire World path. This one is scored by
+ *      the real feature extractors from real seeded evidence — its 0.43 is
+ *      measured, not written down.
+ *   B. Claim + VerificationChallenge rows in each lifecycle state, so the World
+ *      flow and `GET /receipts/:id` can be exercised without holding a real
+ *      Selfie Check proof.
  */
+const SYLESH_CHALLENGE_PATHS = {
+  [FIXTURE_CHALLENGE_WALLET]: ['deposit', 'borrow', 'repay', 'withdraw'],
+  [FIXTURE_CHALLENGE_MATE]: ['swap', 'swap', 'deposit', 'swap'],
+} as const
+
+async function seedChallengeBandCluster(): Promise<void> {
+  const t0 = Date.now()
+  const at = (minutes: number) => new Date(t0 + minutes * 60_000)
+
+  const wallets = [FIXTURE_CHALLENGE_WALLET, FIXTURE_CHALLENGE_MATE]
+  // 20h apart: inside FUNDING_WINDOW_HOURS (24) so the pair is genuinely
+  // co-funded, far enough apart that TIMING_CORRELATION stays at 0.
+  const fundedAtMinutes = [0, 20 * 60]
+  // ~45k blocks apart against a 50k normalizer — similar, not identical.
+  const ageBase = [3_000_000n, 3_045_000n]
+
+  const events: NormalizedEvidenceEvent[] = []
+
+  wallets.forEach((wallet, i) => {
+    events.push({
+      chain: 'seed',
+      wallet,
+      counterparty: FIXTURE_CHALLENGE_FUNDER,
+      eventType: 'transfer',
+      protocol: null,
+      protocolType: null,
+      amount: '1000000000000000000',
+      timestamp: at(fundedAtMinutes[i] ?? 0),
+      blockNumber: ageBase[i] ?? 0n,
+      transactionHash: `0xseedchallengefund${i}`,
+      sourceType: 'token-api',
+      sourceId: `0xseedchallengefund${i}-0`,
+      deploymentId: null,
+    })
+
+    const path = SYLESH_CHALLENGE_PATHS[wallet] ?? []
+    path.forEach((eventType, step) => {
+      events.push({
+        chain: 'seed',
+        wallet,
+        // Exactly one shared counterparty out of four keeps
+        // SHARED_COUNTERPARTY moderate rather than conclusive.
+        counterparty:
+          step === 0
+            ? FIXTURE_CHALLENGE_SHARED_COUNTERPARTY
+            : `0x${`e${i}${step}`.padStart(40, '0')}`,
+        eventType,
+        protocol: 'seed-protocol',
+        protocolType: 'lending-cdp',
+        amount: '500000000000000000',
+        timestamp: at((fundedAtMinutes[i] ?? 0) + 120 + step * 30),
+        blockNumber: (ageBase[i] ?? 0n) + BigInt(1000 * (step + 1)),
+        transactionHash: `0xseedchallengepath${i}${step}`,
+        sourceType: 'token-api',
+        sourceId: `0xseedchallengepath${i}${step}-0`,
+        deploymentId: null,
+      })
+    })
+  })
+
+  const { created } = await persistEvidenceEvents(events)
+
+  const already = await prisma.wallet.findUnique({ where: { address: FIXTURE_CHALLENGE_WALLET } })
+  if (already?.clusterId) {
+    logger.info('[seed:sylesh] challenge-band cluster already formed, skipping')
+    return
+  }
+
+  const clusterIds = await recomputeClusterForCandidates([...wallets])
+  logger.info({ created, clusterIds }, '[seed:sylesh] challenge-band cluster seeded')
+}
+
+/**
+ * One claim per decision state, each with the challenge row that state implies.
+ *
+ * The nullifier is stored as a DECIMAL string converted from 0x-hex, exactly as
+ * a real proof would be — storing the hex would silently break the uniqueness
+ * that replay protection depends on.
+ */
+async function seedClaimLifecycleStates(): Promise<void> {
+  const states = [
+    { wallet: FIXTURE_CHALLENGE_STATE_WALLET, decision: 'CHALLENGE', challenge: 'ISSUED' },
+    { wallet: FIXTURE_PASSED_STATE_WALLET, decision: 'ALLOW', challenge: 'PASSED' },
+    { wallet: FIXTURE_FAILED_STATE_WALLET, decision: 'BLOCK', challenge: 'FAILED' },
+    { wallet: FIXTURE_EXPIRED_STATE_WALLET, decision: 'CHALLENGE', challenge: 'EXPIRED' },
+  ] as const
+
+  const worldActionId = buildWorldAction(FIXTURE_CAMPAIGN_ID)
+
+  for (const [index, state] of states.entries()) {
+    const claim = await prisma.claim.upsert({
+      where: { wallet_campaignId: { wallet: state.wallet, campaignId: FIXTURE_CAMPAIGN_ID } },
+      create: {
+        wallet: state.wallet,
+        campaignId: FIXTURE_CAMPAIGN_ID,
+        riskDecision: state.decision,
+        policyVersion: SEED_POLICY_VERSION,
+        decidedAt: state.decision === 'CHALLENGE' ? null : new Date(),
+      },
+      update: {},
+    })
+
+    const existing = await prisma.verificationChallenge.findFirst({
+      where: { claimId: claim.id },
+    })
+    if (existing) continue
+
+    await prisma.verificationChallenge.create({
+      data: {
+        claimId: claim.id,
+        wallet: state.wallet,
+        status: state.challenge,
+        worldActionId,
+        signalHash: expectedSignalHash(state.wallet, claim.id),
+        // Only a resolved-successfully challenge carries a nullifier.
+        nullifier:
+          state.challenge === 'PASSED'
+            ? nullifierToDecimalString(`0x${(index + 1).toString(16).padStart(64, '0')}`)
+            : null,
+        resolvedAt: state.challenge === 'ISSUED' ? null : new Date(),
+      },
+    })
+
+    // An EvidenceReceipt for every seeded claim, so GET /receipts/:id can be
+    // served without touching The Graph or World — which is the whole point of
+    // a receipt (Phase 21).
+    await prisma.evidenceReceipt.upsert({
+      where: { claimId: claim.id },
+      create: {
+        claimId: claim.id,
+        wallet: state.wallet,
+        decision: state.decision,
+        riskScore: 0.43,
+        confidence: 'MEDIUM',
+        features: [
+          { name: 'FUNDING_CORRELATION', value: 1 },
+          { name: 'TIMING_CORRELATION', value: 0 },
+          { name: 'WALLET_AGE_SIMILARITY', value: 0.55 },
+          { name: 'SHARED_COUNTERPARTY', value: 0.25 },
+          { name: 'PROTOCOL_BEHAVIOR_SIMILARITY', value: 0.4 },
+        ],
+        sources: [{ type: 'token-api', deployment: null, block: '3049000' }],
+        policyVersion: SEED_POLICY_VERSION,
+        requiredAssurance: state.decision === 'CHALLENGE' ? 'SELFIE_CHECK' : null,
+      },
+      update: {},
+    })
+  }
+
+  logger.info({ states: states.length }, '[seed:sylesh] claim lifecycle states seeded')
+}
+
 async function seedSylesh(): Promise<void> {
-  logger.info('[seed:sylesh] not yet implemented')
+  await seedChallengeBandCluster()
+  await seedClaimLifecycleStates()
 }
 
 async function main(): Promise<void> {
