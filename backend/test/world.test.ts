@@ -60,7 +60,7 @@ describe('Phase 17 — IDKit request contract', () => {
     expect(SELFIE_CHECK_PRESET).toBe('selfieCheckLegacy')
   })
 
-  it('hands the client an action, a preset and a signal', () => {
+  it('hands the client a config the real IDKit SDK can build a request from', () => {
     const config = buildIdKitRequestConfig({
       wallet: WALLET_A,
       claimId: 'claim-1',
@@ -69,6 +69,14 @@ describe('Phase 17 — IDKit request contract', () => {
     expect(config.action).toBe('claim-airdrop-2026')
     expect(config.preset).toBe('selfieCheckLegacy')
     expect(config.signal).toBe(buildSignal(WALLET_A, 'claim-1'))
+    // Required top-level fields on the installed @worldcoin/idkit-core
+    // IDKitRequestConfig — app_id is a separate field from rp_id, and
+    // allow_legacy_proofs is required (non-optional) because selfieCheckLegacy
+    // only returns World ID 3.0 proofs. Missing either means the client cannot
+    // construct a request at all.
+    expect(config.app_id).toMatch(/^app_/)
+    expect(config.rp_id).toBeTruthy()
+    expect(config.allow_legacy_proofs).toBe(true)
   })
 })
 

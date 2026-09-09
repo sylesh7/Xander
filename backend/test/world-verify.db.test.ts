@@ -87,6 +87,33 @@ describe('Phase 18 — verification outcomes', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
+  it('includes World\'s own rejection detail in the reason, not just the status code', async () => {
+    // Found by testing against a REAL, otherwise-valid proof: World's own
+    // error detail is exactly what tells "expired action" apart from "wrong
+    // network" apart from "malformed proof" — reporting only "(400)" left a
+    // real integration failure with no way to diagnose it from the UI.
+    vi.stubGlobal('fetch', vi.fn(async () => errResponse(400, { code: 'expired_action' })))
+
+    const outcome = await verifyWorldProof({ idkitResponse: {}, rpId: 'rp_test' })
+
+    expect(outcome.kind).toBe('REJECTED')
+    if (outcome.kind === 'REJECTED') {
+      expect(outcome.reason).toContain('400')
+      expect(outcome.reason).toContain('expired_action')
+    }
+  })
+
+  it('falls back to a raw body dump when the shape has none of the known fields', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => errResponse(400, { unexpected_field: 'nonsense' })))
+
+    const outcome = await verifyWorldProof({ idkitResponse: {}, rpId: 'rp_test' })
+
+    expect(outcome.kind).toBe('REJECTED')
+    if (outcome.kind === 'REJECTED') {
+      expect(outcome.reason).toContain('unexpected_field')
+    }
+  })
+
   it('reports UNAVAILABLE on a 5xx, after retrying', async () => {
     const fetchMock = vi.fn(async () => errResponse(503))
     vi.stubGlobal('fetch', fetchMock)
@@ -159,6 +186,47 @@ describe('Phase 19 — proof field extraction', () => {
 
   it('refuses a proof with no signal_hash rather than skipping binding', () => {
     expect(() => extractProofFields({}, { nullifier: '0xccc' })).toThrow(/signal_hash/i)
+  })
+
+  // The real IDKitResult shape, per the installed @worldcoin/idkit-core types
+  // (dist/index.d.ts): nullifier and signal_hash live inside responses[0], not
+  // at the top level. selfieCheckLegacy's own doc comment says it "only
+  // returns World ID 3.0 proofs" — this is the exact IDKitResultV3 shape.
+  // Without this, a genuine successful Selfie Check proof would have thrown
+  // "no nullifier" every time, since the fields were never at the top level.
+  const REAL_V3_RESULT = {
+    protocol_version: '3.0',
+    nonce: 'abc',
+    action: 'claim-airdrop-2026',
+    environment: 'production',
+    responses: [
+      {
+        identifier: 'selfie',
+        signal_hash: '0xrealsignalhash',
+        proof: '0xrealproof',
+        merkle_root: '0xrealroot',
+        nullifier: '0xrealnullifier',
+      },
+    ],
+  }
+
+  it('reads nullifier and signal_hash out of a REAL nested V3 result', () => {
+    const fields = extractProofFields({}, REAL_V3_RESULT)
+    expect(fields.nullifier).toBe('0xrealnullifier')
+    expect(fields.signalHash).toBe('0xrealsignalhash')
+  })
+
+  it('still prefers a flat World verify-response field over the nested client one', () => {
+    // World's own verify-response shape is not documented anywhere this
+    // project could confirm (open question), so both forms are checked — but
+    // if World's response DOES echo a flat field, that is the authoritative
+    // one, per "a value World returned after checking the proof is worth more
+    // than the same value read from the payload the client handed us."
+    const fields = extractProofFields({ nullifier: '0xworldsays' }, REAL_V3_RESULT)
+    expect(fields.nullifier).toBe('0xworldsays')
+    // signal_hash wasn't echoed by World, so it still falls through to the
+    // real nested client value rather than being lost.
+    expect(fields.signalHash).toBe('0xrealsignalhash')
   })
 })
 

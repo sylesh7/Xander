@@ -27,6 +27,10 @@ export default defineConfig({
       // --- SYLESH (Phases 13-25) --------------------------------------------
       BACKEND_API_KEY: 'test-api-key',
       WORLD_RP_ID: 'rp_test',
+      // app_id is a separate, required field on the real IDKit client SDK's
+      // request config — not an alternate spelling of rp_id (see
+      // requireWorldAppId in src/config/env.ts).
+      WORLD_APP_ID: 'app_test',
       // A throwaway secp256k1 key. Real signing is exercised against it; it
       // guards nothing and is not a credential.
       WORLD_RP_SIGNING_KEY:

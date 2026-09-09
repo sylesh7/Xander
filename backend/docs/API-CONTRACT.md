@@ -80,10 +80,12 @@ challenge, not two.
   "evidenceReceiptId": "cmtt…" | null,
   "verificationChallengeId": "cmtt…" | null,
   "idkit": {                      // present only on CHALLENGE
+    "app_id": "app_…",
     "rp_id": "rp_…",
     "action": "claim-airdrop-2026",
     "preset": "selfieCheckLegacy",
-    "signal": "0xwallet…:claimId"
+    "signal": "0xwallet…:claimId",
+    "allow_legacy_proofs": true
   },
   "reason": "human-readable explanation of the decision",
   "cached": false
@@ -113,6 +115,41 @@ an error either; retrying later can produce a real answer.
 
 Both casings are returned so neither IDKit (camelCase) nor the spec's own
 acceptance shape (snake_case) needs remapping. Use whichever your client wants.
+
+### Building the real IDKit request from these two responses
+
+This is the step every integration gets wrong first, because the field name
+changes: `POST /world/rp-signature` returns `sig`, but the installed
+`@worldcoin/idkit-core` client SDK's `RpContext` type names that field
+**`signature`**. Verified against the package's own type definitions
+(`node_modules/@worldcoin/idkit-core/dist/index.d.ts`), not from memory:
+
+```ts
+import { IDKit, selfieCheckLegacy } from '@worldcoin/idkit-core'
+
+// idkit  = the `idkit` block from /screen-claim, above
+// rpSig  = the /world/rp-signature response, above
+const request = await IDKit.requestWithInviteCode({
+  app_id: idkit.app_id,
+  action: idkit.action,
+  allow_legacy_proofs: idkit.allow_legacy_proofs,
+  rp_context: {
+    rp_id: idkit.rp_id,
+    nonce: rpSig.nonce,
+    created_at: rpSig.created_at,
+    expires_at: rpSig.expires_at,
+    signature: rpSig.sig,          // <-- the field that changes name
+  },
+}).preset(selfieCheckLegacy({ signal: idkit.signal }))
+
+// Cross-device only: selfieCheckLegacy is confirmed as the only supported
+// preset in invite-code mode today. `requestWithInviteCode`, not `request`.
+console.log(request.connectorURI)          // show as a link / QR code
+const proof = await request.pollUntilCompletion()
+```
+
+`proof` here is the exact object to send as `idkitResponse` to
+`POST /world/verify` — forwarded unmodified, per that section above.
 
 ### `POST /world/verify`
 

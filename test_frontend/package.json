@@ -1,0 +1,22 @@
+{
+  "name": "xander-world-id-tester",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Basic dev/QA page for exercising Xander's real Claim Gate API and World ID Selfie Check flow end to end.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@worldcoin/idkit-core": "^4.2.4",
+    "qrcode": "^1.5.4"
+  },
+  "devDependencies": {
+    "@types/qrcode": "^1.5.5",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.7"
+  }
+}

@@ -37,6 +37,40 @@ function describeError(err: unknown): string {
   return String(err)
 }
 
+/**
+ * Pulls a human-readable detail out of World's rejection body.
+ *
+ * World's own `/api/v4/verify/{rp_id}` error response shape is not documented
+ * anywhere this project could confirm — a standing open question (see
+ * docs/PROGRESS-SYLESH.md). Without this, a REJECTED outcome reported only the
+ * status code (`"World rejected the proof (400)"`), which discarded exactly
+ * the information needed to tell "expired action" from "wrong network" from
+ * "malformed proof" apart — found by testing against a REAL, otherwise-valid
+ * proof that World rejected for a reason the UI had no way to show.
+ * Defensive and generic on purpose, since the shape is unconfirmed: tries the
+ * field names World's own docs use elsewhere (`detail`, `code`, `error`,
+ * `message`), then falls back to a truncated dump of the whole body rather
+ * than silently returning nothing.
+ */
+function summarizeRejectionBody(body: unknown): string | null {
+  if (body === null || body === undefined) return null
+  if (typeof body === 'string') return body.slice(0, 300)
+
+  if (typeof body === 'object') {
+    const record = body as Record<string, unknown>
+    for (const key of ['detail', 'code', 'error', 'message']) {
+      const value = record[key]
+      if (typeof value === 'string' && value.length > 0) return value.slice(0, 300)
+    }
+    try {
+      return JSON.stringify(body).slice(0, 300)
+    } catch {
+      return null
+    }
+  }
+  return null
+}
+
 async function attemptVerify(rpId: string, idkitResponse: unknown): Promise<VerifyOutcome> {
   const url = `${env.WORLD_VERIFY_BASE_URL}/api/v4/verify/${rpId}`
 
@@ -65,11 +99,12 @@ async function attemptVerify(rpId: string, idkitResponse: unknown): Promise<Veri
 
   // A 4xx is World's considered answer that this proof is not valid. Treating
   // it as retryable would hammer the endpoint and still never succeed.
+  const detail = summarizeRejectionBody(body)
   return {
     kind: 'REJECTED',
     status: response.status,
     body,
-    reason: `World rejected the proof (${response.status})`,
+    reason: `World rejected the proof (${response.status})${detail ? `: ${detail}` : ''}`,
   }
 }
 
@@ -113,6 +148,19 @@ export async function verifyWorldProof(params: {
  * the proof is worth more than the same value read from the payload the client
  * handed us.
  *
+ * THE REAL CLIENT RESULT NESTS THESE FIELDS — verified against the installed
+ * `@worldcoin/idkit-core` client SDK's own types
+ * (`node_modules/@worldcoin/idkit-core/dist/index.d.ts`). An `IDKitResult` is
+ * `IDKitResultV3 | IDKitResultV4 | IDKitResultSession`; every variant carries
+ * `nullifier` and `signal_hash` inside `responses[0]`, not at the top level of
+ * the result object — including the V3 shape `selfieCheckLegacy` actually
+ * returns, since its own doc comment states it "only returns World ID 3.0
+ * proofs." An earlier version of this function only checked the top level and
+ * would have thrown "no nullifier" on every genuine proof. World's own verify
+ * response shape is not documented anywhere this project could confirm (a
+ * standing open question — see docs/PROGRESS-SYLESH.md), so it is checked both
+ * ways: as a flat object and as one holding its own `responses[0]`.
+ *
  * Field naming is tolerant across snake_case and camelCase because the two
  * generations of this API differ, and a missing nullifier is fatal rather than
  * skippable: replay protection (Phase 19) cannot be enforced without it, and
@@ -127,8 +175,21 @@ export function extractProofFields(
     ? (idkitResponse as Record<string, unknown>)
     : {}) as Record<string, unknown>
 
+  const firstResponse = (obj: Record<string, unknown>): Record<string, unknown> => {
+    const responses = obj.responses
+    const first = Array.isArray(responses) ? responses[0] : undefined
+    return typeof first === 'object' && first !== null ? (first as Record<string, unknown>) : {}
+  }
+
+  // Checked in this order: World's verify response (flat, then its own
+  // responses[0]), then the client payload (flat, then its responses[0]) —
+  // preserving "World's own answer outranks what the client handed us" while
+  // covering both the documented-nowhere verify shape and the real,
+  // type-confirmed client result shape.
+  const sources = [verifyBody, firstResponse(verifyBody), payload, firstResponse(payload)]
+
   const pick = (...keys: string[]): string | undefined => {
-    for (const source of [verifyBody, payload]) {
+    for (const source of sources) {
       for (const key of keys) {
         const value = source[key]
         if (typeof value === 'string' && value.length > 0) return value

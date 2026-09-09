@@ -316,6 +316,25 @@ export function requireWorldRpId(): string {
 }
 
 /**
+ * The World app id, for the CLIENT-SIDE IDKit request config (Sylesh Phase 17).
+ *
+ * NOT a fallback here — unlike `requireWorldRpId`, where `app_id` only stands
+ * in for a missing `rp_id`. The installed `@worldcoin/idkit-core` client SDK's
+ * `IDKitRequestConfig.app_id` is a REQUIRED top-level field, structurally
+ * distinct from `rp_context.rp_id`: a request cannot be constructed at all
+ * without it, verify endpoint preference for `rp_id` notwithstanding.
+ */
+export function requireWorldAppId(): string {
+  if (!env.WORLD_APP_ID) {
+    throw new Error(
+      'WORLD_APP_ID is not set. The IDKit client SDK requires app_id on every request ' +
+        'config — register the app at developer.world.org (Phase 13.2) to get one.',
+    )
+  }
+  return env.WORLD_APP_ID
+}
+
+/**
  * The RP signing key (Sylesh Phase 16).
  *
  * Read ONLY on the server. IDKit's own documentation is explicit that this key

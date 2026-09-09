@@ -12,12 +12,12 @@ Suganthan reads this to know what they can rely on.
 
 | Phase | Scope                                            | Status                                                                     |
 | ----- | ------------------------------------------------ | -------------------------------------------------------------------------- |
-| 13    | Access & credentials (World) + MCP prerequisites | 🟡 **Blocked externally** — code is credential-ready; see "Phase 13" below |
+| 13    | Access & credentials (World) + MCP prerequisites | ✅ **Selfie Check access confirmed granted** — a real phone completed a real proof, 2026-09-09 |
 | 14    | Risk cache + `risk-invalidation` consumer        | ✅ **Done** — verified against real Redis, real queue round trip           |
 | 15    | Subgraph MCP investigation agent                 | ✅ **Fully verified end to end** — real model (OpenRouter), real MCP server, real gateway data, real evidence anchor |
 | 16    | World: RP signature                              | ✅ **Done** — real signing via `@worldcoin/idkit-core`                     |
 | 17    | World: IDKit request contract                    | ✅ **Done** — `docs/API-CONTRACT.md`                                       |
-| 18    | World: backend verification                      | 🟡 **Built, not run live** — no Selfie Check access yet                    |
+| 18    | World: backend verification                      | ✅ **Live-verified with a real phone and a real proof**, 2026-09-09       |
 | 19    | Wallet binding + replay protection               | ✅ **Done** — verified against the real unique constraint                  |
 | 20    | Policy Engine                                    | ✅ **Done**                                                                |
 | 21    | Evidence Receipt                                 | ✅ **Done**                                                                |
@@ -375,6 +375,69 @@ simply by re-encoding it. There is a test for exactly that.
 as a parameter while the challenge row already had one, so the uniqueness check
 and the write could disagree about which action was being claimed. It now reads
 the action from the row — the caller cannot get it wrong.
+
+### Two real bugs found building the frontend tester (`frontend/`), 2026-09-09
+
+Both would have silently broken every genuine Selfie Check attempt. Neither was
+visible from the spec text alone — both came from reading the *installed*
+`@worldcoin/idkit-core` 4.2.4 type definitions directly
+(`node_modules/@worldcoin/idkit-core/dist/index.d.ts`) while wiring a real
+client against them.
+
+**1. `buildIdKitRequestConfig` never returned `app_id`.** The real
+`IDKitRequestConfig` type requires `app_id` as a field entirely separate from
+`rp_id` (`app_id: \`app_${string}\`` — no `?`), not an alternate spelling used
+interchangeably the way it is on the verify endpoint. Without it the client
+SDK cannot construct a request at all. Fixed by adding `requireWorldAppId()`
+to `env.ts` (mirroring `requireWorldRpId`) and returning `app_id` and
+`allow_legacy_proofs: true` (also required — `selfieCheckLegacy`'s own doc
+comment says it "only returns World ID 3.0 proofs") from
+`idkit-request-config.ts`.
+
+**2. `extractProofFields` read the wrong response shape.** Every real
+`IDKitResult` variant (V3, V4, session) carries `nullifier` and `signal_hash`
+inside `responses[0]`, never at the top level — confirmed against the real
+types, not assumed. The original implementation only checked the top level, so
+a genuine successful proof would have thrown "Verified proof carried no
+nullifier" every single time — the fixture tests passed because their
+hand-written mocks put the fields exactly where the (wrong) code looked for
+them. Fixed to check both the flat shape and `responses[0]`, on both World's
+verify response and the client payload — World's own verify-response shape is
+still not documented anywhere this project could confirm, so that side stays
+tolerant of either.
+
+**Live proof the fix works, in a real browser, with a real phone — not a unit
+test.** The frontend tester drove a real `/screen-claim` → real `CHALLENGE` →
+real `/world/rp-signature` → real `@worldcoin/idkit-core` WASM signing → a
+genuine `https://.../verify?...&c=<code>&a=<app_id>` link. **A real phone
+scanned it and completed the biometric check for real**, returning a genuine
+`protocol_version: "3.0"` proof with a real merkle root, nullifier, and proof
+bytes. **Phase 13 access is confirmed granted** — that gap is closed.
+
+### Two more real bugs, found only by testing with an actual phone
+
+**`verifyWorldProof`'s `REJECTED` outcome discarded World's own rejection
+detail down to a bare status code** (`"World rejected the proof (400)"`).
+Against a genuinely valid proof this hid the one thing worth knowing. Now
+extracts `detail`/`code`/`error`/`message` from World's response body
+(`summarizeRejectionBody` in `idkit-verify.ts`), falling back to a raw dump.
+Confirmed real: replaying the exact captured proof directly against
+`developer.world.org` returned
+`{"code":"environment_mismatch","detail":"This proof was generated for the
+production environment, but this request uses staging..."}` — a real phone's
+real World App generates **production**-environment proofs, and this project's
+`environment` default (both the frontend's and, by extension, anyone testing
+against a real device) was `staging` — Section 13.3's confirmed path for
+World's *simulator* tool, not a real phone. Frontend default changed to
+`production`.
+
+**The frontend's own error handling hid the same detail a second time.**
+`/world/verify`'s non-2xx body is the real `VerifyResult` shape,
+`{ status, challengeId, reason }` — no `message` key — but the client only
+checked `.message`, showing a useless `"400: HTTP 400"` regardless of what the
+backend actually said. Fixed in `frontend/src/api.ts` to check
+`message`/`reason`/`error`, and error displays now render the full response
+body, not a one-line summary.
 
 ---
 

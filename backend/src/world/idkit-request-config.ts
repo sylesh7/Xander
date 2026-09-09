@@ -10,7 +10,7 @@
  * Handing the client a computed config, rather than documenting the rules and
  * hoping, is what keeps those two derivations in sync.
  */
-import { env, requireWorldRpId } from '../config/env.js'
+import { env, requireWorldAppId, requireWorldRpId } from '../config/env.js'
 import { buildSignal } from './wallet-binding.js'
 
 /**
@@ -40,10 +40,27 @@ export function buildWorldAction(campaignId: string): string {
 }
 
 export interface IdKitRequestConfig {
+  /**
+   * Required by the installed `@worldcoin/idkit-core` client SDK's
+   * `IDKitRequestConfig.app_id` — a separate, mandatory top-level field, not
+   * an alternate spelling of `rp_id`. Verified against the package's own type
+   * definitions (`node_modules/@worldcoin/idkit-core/dist/index.d.ts`):
+   * `app_id: \`app_${string}\`` carries no `?`, so `IDKit.request(...)` cannot
+   * be constructed without it even when `rp_id` is present.
+   */
+  app_id: string
   rp_id: string
   action: string
   preset: typeof SELFIE_CHECK_PRESET
   signal: string
+  /**
+   * `selfieCheckLegacy`'s own type doc states it "only returns World ID 3.0
+   * proofs" — and `IDKitRequestConfig.allow_legacy_proofs` is a required
+   * (non-optional) boolean on that same type. Without `true` here the request
+   * config the client builds does not typecheck against the real SDK, and at
+   * runtime a legacy-only preset would have nothing to fall back to.
+   */
+  allow_legacy_proofs: true
 }
 
 /** Everything the client needs to build a valid IDKit request for one claim. */
@@ -53,9 +70,11 @@ export function buildIdKitRequestConfig(params: {
   campaignId: string
 }): IdKitRequestConfig {
   return {
+    app_id: requireWorldAppId(),
     rp_id: requireWorldRpId(),
     action: buildWorldAction(params.campaignId),
     preset: SELFIE_CHECK_PRESET,
     signal: buildSignal(params.wallet, params.claimId),
+    allow_legacy_proofs: true,
   }
 }
