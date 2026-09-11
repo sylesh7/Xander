@@ -208,6 +208,53 @@ model EvidenceReceipt {
 // reprocessed on restart rather than silently skipped. blockNumber is kept
 // alongside the cursor purely for /health reporting (Phase 11) — the cursor,
 // not this number, is what the stream actually resumes from.
+/**
+ * Known-funder registry — Xander V2 spec section 12.3, built in V2 Phase 0.
+ *
+ * ADDITIVE schema change, 2026-09-12. Logged in Section 0.4 of BOTH markdown
+ * specs. No existing model changed and nothing on either track reads or writes
+ * it except FUNDING_CORRELATION's option loader, so no existing query can break.
+ *
+ * Why it exists: Readme.md promises "a known-funder exclusion list, from day
+ * one" and calls it "the single most important lesson" from the Arbitrum
+ * airdrop precedent — and it did not exist. Without it, one exchange hot wallet
+ * funding thousands of unrelated people who all withdraw in the same window
+ * after an airdrop announcement scores maximum FUNDING_CORRELATION, which is
+ * precisely the false positive that made the Arbitrum heuristic notorious.
+ *
+ * `chain` is a string network slug ("mainnet", "base-sepolia"), NOT the numeric
+ * `chainId` the V2 spec's field list names. It has to join against
+ * EvidenceEvent.chain, which is a slug — carrying a numeric id here instead
+ * would force a slug-to-id mapping table before a single lookup could resolve.
+ * V2's own actor/wallet tables can carry a numeric chainId from Phase 1 on.
+ *
+ * `source` and `confidence` are not decoration. A funder label is an assertion
+ * made by somebody, and a wrong label is a security hole in both directions —
+ * it can excuse a real attacker's funder or fail to excuse a real exchange. The
+ * row records who said so, so a bad label is auditable rather than anonymous.
+ *
+ * validFrom/validTo exist because labels expire: an exchange rotates a hot
+ * wallet and the old address stops being operational. Lookups filter on the
+ * window rather than deleting rows, so a decision made last month can still be
+ * reconstructed against the labels that were live when it was made.
+ */
+model KnownFunderAddress {
+  id         String    @id @default(cuid())
+  address    String
+  chain      String
+  label      String // "Binance 14", "Base: L1StandardBridge"
+  category   String // EXCHANGE | BRIDGE | FAUCET | PROTOCOL_TREASURY | KNOWN_DISTRIBUTOR | OTHER
+  source     String // provenance of the label — a URL or dataset name, never blank
+  confidence String // "LOW" | "MEDIUM" | "HIGH"
+  validFrom  DateTime  @default(now())
+  validTo    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  // Also serves as the (chain, address) index the V2 spec's section 26 requires.
+  @@unique([chain, address])
+}
+
 model SubstreamsCursor {
   id          String   @id @default(cuid())
   chain       String

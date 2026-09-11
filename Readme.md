@@ -49,7 +49,7 @@ Xander exists to fix the part of this that's actually fixable in a hackathon-siz
 
 1. **Evidence, not assumption.** Every fact behind a risk score — a transfer, a deposit, a borrow — is pulled live from The Graph and stored with its source, its deployment, and its block number attached. Nothing is inferred or fabricated.
 2. **Deterministic scoring, not a black box.** Five named features (funding correlation, timing correlation, wallet-age similarity, shared-counterparty overlap, protocol-behavior similarity), each computed by an auditable formula, combined by weights stored in a database table — never a hardcoded number a judge (or a falsely-flagged user) can't inspect.
-3. **A known-funder exclusion list, from day one.** The exact heuristic that misfired on Arbitrum — shared funding source — only counts as a signal here once the funder is checked against a seeded table of labeled exchange hot wallets, bridges, and faucets. This is the single most important lesson pulled directly from the airdrop precedents above.
+3. **A known-funder registry, so the Arbitrum heuristic can't misfire the same way.** Shared funding source — the exact signal that produced Arbitrum's false positives — is checked against a table of labeled exchange hot wallets and bridge contracts before it counts. Labelled and unlabelled funders are scored *separately* and the higher wins, so a benign shared funder is heavily down-weighted while a ring cannot launder a coordination signal by routing one extra transfer through an exchange. It down-weights rather than excludes on purpose: a ring genuinely can be run out of one exchange account. Currently seeded with 10 bridge contracts (first-party docs) and 100 exchange hot wallets (only addresses two independent label datasets agree on). The `FAUCET` category is supported but empty — no faucet operator publishes its dispenser address, and inventing one would defeat the point. This is the single most important lesson pulled directly from the airdrop precedents above.
 4. **AI investigates, it doesn't decide.** When a cluster is flagged, an investigation agent (via The Graph's Subgraph MCP) explains *what* it found and *where it queried it from* — every claim in its report is checked against its own tool-call trace before being trusted. The number that gates the claim always comes from the deterministic scorer, never from the agent's prose.
 5. **Biometric verification only for the wallets that need it.** World ID Selfie Check is never shown to a low-risk wallet. It appears exactly once risk crosses an explicit, config-driven threshold — turning an invasive step into a targeted one instead of a blanket gate applied to everyone.
 6. **Fail closed, never fail open.** A stale Graph query, an unhealthy deployment, a timed-out World verification — none of these silently resolve to `ALLOW`. They resolve to `PENDING_REVIEW`. An unknown wallet is not a safe wallet.
@@ -263,14 +263,19 @@ Xander/
 
 **Evidence & Risk Engine (Phases 1–12): done, verified live, not from memory.**
 
-- 212/212 tests passing
 - Real Token API, Standardized Subgraphs (4+ live deployments across 2 chains), and Substreams (live Base Sepolia stream, cursor-resume and reorg both proven) integrations
 - The Suganthan → Sylesh interface seam does real work end to end: a coordinated 5-wallet cluster scores `BLOCK` (≈0.85), a clean wallet scores `ALLOW`, an unknown wallet always resolves `PENDING_REVIEW` — never a silent, confident `ALLOW`
 - A live, synced Subgraph Studio deployment (`xander`, Base Sepolia) indexing real USDC `Transfer` events
 
 Full detail: `backend/docs/PROGRESS-SUGANTHAN.md`.
 
-**Decision, Escalation & API (Phases 13–25): specified, in progress.** Subgraph MCP investigation agent, World ID Selfie Check integration, policy engine, and the public Claim Gate API surface — owned by Sylesh, per `Backend-Sylesh.md`.
+**Decision, Escalation & API (Phases 13–24): done and live-verified.** Subgraph MCP investigation agent, World ID Selfie Check integration, policy engine, evidence receipts, and the 12-route Claim Gate API — owned by Sylesh, per `Backend-Sylesh.md`. A real phone running the real World App completed a real Selfie Check on 2026-09-09, producing a valid V3 proof that this backend's verification logic accepted, bound to the correct wallet and claim. A real claim has gone from `CHALLENGE` through World verification to `ALLOW` with a reconstructable Evidence Receipt.
+
+**Phase 25 (joint wiring) is the one open V1 phase.** Every piece it exercises has been verified in isolation; the specific cross-track failure-injection run the spec asks for has not been done as a single joint session.
+
+**Test suite: 330 passing, 5 skipped without live credentials, 0 failing** (2026-09-12). There are no `vi.mock()` module mocks anywhere in `backend/test/` — that is deliberate, and removing the two mocks that once existed is what surfaced two real bugs.
+
+Full detail: `backend/docs/PROGRESS-SYLESH.md`.
 
 ## Running it locally
 
@@ -278,11 +283,19 @@ Full detail: `backend/docs/PROGRESS-SUGANTHAN.md`.
 cd backend
 cp .env.example .env      # fill in credentials as they arrive
 npm install
-npm run infra:up          # postgres:16 + redis:7
+npm run infra:up          # postgres:16 on host port 5433, redis:7 on 6380
 npm run db:migrate
 npm run db:seed
 npm run dev                # http://localhost:3000/health -> { ok: true, provenance: {...} }
 npm run typecheck && npm run lint && npm test
+```
+
+Postgres and Redis are deliberately mapped off their default host ports (5433 and 6380, not 5432/6379) so the stack runs alongside other local projects without a port clash. The ports appear in four places that must stay in sync: `docker-compose.yml`, `.env`, `.env.example`, and `vitest.config.ts` — that last one sets its own `DATABASE_URL` independent of `.env`, and a mismatch shows up as a Prisma authentication error in the DB tests.
+
+If a fixture wallet unexpectedly resolves `PENDING_REVIEW`, it is almost certainly the 6-hour evidence-freshness window rather than a regression — fixture rows are deduplicated on re-seed and keep their original `createdAt`. Fix it with:
+
+```bash
+npm run db:seed:refresh   # re-stamps fixture evidence as freshly fetched
 ```
 
 Live-verification commands (real credentials, real data, not from memory):

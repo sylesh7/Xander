@@ -15,6 +15,7 @@ import type {
   EvidenceWindow,
   FeatureOptions,
   FeatureResult,
+  KnownFunder,
   RiskEvidenceRow,
 } from './types.js'
 
@@ -133,6 +134,30 @@ export function largestWindowCluster(timesMs: readonly number[], windowMs: numbe
   return best
 }
 
+/** Registry lookup key. Both halves lowercased so callers cannot get it subtly wrong. */
+export function knownFunderKey(chain: string, address: string): string {
+  return `${chain.toLowerCase()}|${address.toLowerCase()}`
+}
+
+/**
+ * The registry label for a funder, if any chain it was observed on has one.
+ *
+ * Checks every chain the funder appeared on rather than just one: an exchange
+ * hot wallet is the same EOA on every EVM chain, so a label earned on mainnet
+ * still identifies it when it shows up funding wallets on an L2.
+ */
+function labelFor(
+  funder: string,
+  chains: ReadonlySet<string>,
+  index: FeatureOptions['knownFunders'],
+): KnownFunder | undefined {
+  for (const chain of chains) {
+    const hit = index.get(knownFunderKey(chain, funder))
+    if (hit) return hit
+  }
+  return undefined
+}
+
 /**
  * FUNDING_CORRELATION — does this wallet set share a funder?
  *
@@ -144,6 +169,21 @@ export function largestWindowCluster(timesMs: readonly number[], windowMs: numbe
  * FUNDING_LOOKBACK_HOPS is 1 — the direct funder only. Walking further back is
  * a real graph traversal and the spec says not to reach for it until
  * direct-funder correlation proves insufficient.
+ *
+ * KNOWN-FUNDER HANDLING (V2 spec section 12.3). Funders are split into
+ * labelled-benign and unlabelled, each scored separately, and the feature takes
+ * whichever is higher after the labelled side is multiplied down by
+ * `knownFunderWeightMultiplier`:
+ *
+ *   value = max(unlabelledValue, labelledValue × multiplier)
+ *
+ * Splitting rather than simply discounting the winner is what keeps the
+ * mitigation from becoming a bypass. A ring that funds itself from a private
+ * wallet AND happens to also touch an exchange still scores full marks on the
+ * private funder, so an attacker cannot launder a coordination signal by
+ * routing one extra transfer through Binance. Meanwhile the Arbitrum-style
+ * false positive — thousands of unrelated people withdrawing from one exchange
+ * in the same window — collapses to a weak signal instead of a maximal one.
  */
 export const fundingCorrelation = (
   wallets: readonly string[],
@@ -157,14 +197,22 @@ export const fundingCorrelation = (
   const total = byWallet.size
 
   // Earliest inbound transfer per wallet: who funded it, when, and which row said so.
-  const funded = new Map<string, { funder: string; atMs: number; evidenceId: string }>()
+  const funded = new Map<
+    string,
+    { funder: string; chain: string; atMs: number; evidenceId: string }
+  >()
   for (const [wallet, rows] of byWallet) {
     for (const r of rows) {
       if (r.eventType !== 'transfer' || !r.counterparty) continue
       const prev = funded.get(wallet)
       const atMs = r.timestamp.getTime()
       if (!prev || atMs < prev.atMs) {
-        funded.set(wallet, { funder: r.counterparty.toLowerCase(), atMs, evidenceId: r.id })
+        funded.set(wallet, {
+          funder: r.counterparty.toLowerCase(),
+          chain: r.chain,
+          atMs,
+          evidenceId: r.id,
+        })
       }
     }
   }
@@ -173,38 +221,72 @@ export const fundingCorrelation = (
     return empty(name, 'no inbound transfer evidence for any wallet')
   }
 
-  const byFunder = new Map<string, Array<{ atMs: number; evidenceId: string }>>()
-  for (const f of funded.values()) {
-    const list = byFunder.get(f.funder)
-    if (list) list.push({ atMs: f.atMs, evidenceId: f.evidenceId })
-    else byFunder.set(f.funder, [{ atMs: f.atMs, evidenceId: f.evidenceId }])
+  interface FunderGroup {
+    entries: Array<{ atMs: number; evidenceId: string }>
+    chains: Set<string>
   }
-
-  const windowMs = opts.fundingWindowHours * 3_600_000
-  let bestCount = 0
-  let bestFunder: string | null = null
-  for (const [funder, entries] of byFunder) {
-    const count = largestWindowCluster(
-      entries.map((e) => e.atMs),
-      windowMs,
-    )
-    if (count > bestCount) {
-      bestCount = count
-      bestFunder = funder
+  const byFunder = new Map<string, FunderGroup>()
+  for (const f of funded.values()) {
+    const group = byFunder.get(f.funder)
+    if (group) {
+      group.entries.push({ atMs: f.atMs, evidenceId: f.evidenceId })
+      group.chains.add(f.chain)
+    } else {
+      byFunder.set(f.funder, {
+        entries: [{ atMs: f.atMs, evidenceId: f.evidenceId }],
+        chains: new Set([f.chain]),
+      })
     }
   }
 
-  const value = total > 1 ? (bestCount - 1) / (total - 1) : 0
+  const windowMs = opts.fundingWindowHours * 3_600_000
+  /** A group of one is not co-funding, hence the −1s. */
+  const scale = (count: number) => (total > 1 ? Math.max(0, (count - 1) / (total - 1)) : 0)
+
+  let unlabelled: { funder: string; value: number } | null = null
+  let labelled: { funder: string; value: number; known: KnownFunder; count: number } | null = null
+
+  for (const [funder, group] of byFunder) {
+    const count = largestWindowCluster(
+      group.entries.map((e) => e.atMs),
+      windowMs,
+    )
+    const known = labelFor(funder, group.chains, opts.knownFunders)
+    if (known) {
+      const value = scale(count) * opts.knownFunderWeightMultiplier
+      if (!labelled || value > labelled.value) labelled = { funder, value, known, count }
+    } else {
+      const value = scale(count)
+      if (!unlabelled || value > unlabelled.value) unlabelled = { funder, value }
+    }
+  }
+
+  // Ties go to the unlabelled funder: when both explain the set equally well,
+  // the one nobody has vouched for is the more informative attribution.
+  const winner =
+    labelled && (!unlabelled || labelled.value > unlabelled.value)
+      ? { funder: labelled.funder, value: labelled.value }
+      : unlabelled
+        ? { funder: unlabelled.funder, value: unlabelled.value }
+        : null
+
+  const notes: string[] = []
+  if (funded.size < total) notes.push(`funding evidence for ${funded.size}/${total} wallets`)
+  if (labelled && winner?.funder === labelled.funder) {
+    notes.push(
+      `shared funder is a labelled ${labelled.known.category} (${labelled.known.label}); ` +
+        `${labelled.count}/${total} wallets co-funded, signal down-weighted ` +
+        `x${opts.knownFunderWeightMultiplier}`,
+    )
+  }
 
   return {
     name,
-    value: Math.min(1, Math.max(0, value)),
+    value: Math.min(1, Math.max(0, winner?.value ?? 0)),
     confidence: coverageConfidence(funded.size, total),
     sourceEvidenceIds:
-      bestFunder === null ? [] : (byFunder.get(bestFunder) ?? []).map((e) => e.evidenceId),
-    ...(funded.size < total
-      ? { note: `funding evidence for ${funded.size}/${total} wallets` }
-      : {}),
+      winner === null ? [] : (byFunder.get(winner.funder)?.entries ?? []).map((e) => e.evidenceId),
+    ...(notes.length > 0 ? { note: notes.join('; ') } : {}),
   }
 }
 

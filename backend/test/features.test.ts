@@ -11,15 +11,25 @@ import {
   timingCorrelation,
   walletAgeSimilarity,
 } from '../src/risk/features.js'
-import { FEATURE_NAMES } from '../src/risk/types.js'
-import type { EvidenceWindow, FeatureOptions, RiskEvidenceRow } from '../src/risk/types.js'
+import { EMPTY_KNOWN_FUNDERS, FEATURE_NAMES } from '../src/risk/types.js'
+import type {
+  EvidenceWindow,
+  FeatureOptions,
+  KnownFunder,
+  RiskEvidenceRow,
+} from '../src/risk/types.js'
 
 const OPTS: FeatureOptions = {
   fundingWindowHours: 24,
   timingNormalizationSeconds: 3600,
   ageNormalizationBlocks: 50_000,
   protocolSequenceMaxLength: 200,
+  knownFunders: EMPTY_KNOWN_FUNDERS,
+  knownFunderWeightMultiplier: 0.15,
 }
+
+/** The chain every fixture row below sits on, unless a test says otherwise. */
+const CHAIN = 'testchain'
 
 const T0 = new Date('2026-01-01T00:00:00Z').getTime()
 const at = (minutes: number) => new Date(T0 + minutes * 60_000)
@@ -27,6 +37,7 @@ const at = (minutes: number) => new Date(T0 + minutes * 60_000)
 let seq = 0
 const row = (over: Partial<RiskEvidenceRow> & { wallet: string }): RiskEvidenceRow => ({
   id: `ev-${++seq}`,
+  chain: CHAIN,
   counterparty: null,
   eventType: 'transfer',
   timestamp: T0 ? at(0) : new Date(),
@@ -198,6 +209,92 @@ describe('FUNDING_CORRELATION', () => {
     expect(r.value).toBeCloseTo(0.25)
     expect(r.confidence).toBe('LOW')
     expect(r.note).toMatch(/2\/5/)
+  })
+})
+
+/**
+ * The known-funder registry — V2 spec section 12.3.
+ *
+ * This is the Arbitrum lesson made executable. The heuristic that misfired
+ * there was exactly the one above: shared funding source treated as coordination
+ * regardless of WHO the funder was.
+ */
+describe('FUNDING_CORRELATION — known-funder registry', () => {
+  const EXCHANGE: KnownFunder = {
+    label: 'Binance 14',
+    category: 'EXCHANGE',
+    confidence: 'MEDIUM',
+  }
+
+  const withLabels = (entries: Array<[string, KnownFunder]>): FeatureOptions => ({
+    ...OPTS,
+    knownFunders: new Map(entries.map(([addr, k]) => [`${CHAIN}|${addr.toLowerCase()}`, k])),
+  })
+
+  it('down-weights a shared funder that is a labelled exchange', () => {
+    // The false positive verbatim: five unrelated people all withdrew from the
+    // same exchange inside the window. Unlabelled this scores a maximal 1.0.
+    const { wallets, window } = coordinated()
+    const labelled = withLabels([['funder', EXCHANGE]])
+
+    expect(fundingCorrelation(wallets, window, OPTS).value).toBe(1)
+    const r = fundingCorrelation(wallets, window, labelled)
+    expect(r.value).toBeCloseTo(0.15)
+    expect(r.note).toMatch(/labelled EXCHANGE \(Binance 14\)/)
+  })
+
+  it('down-weights rather than erasing — a labelled funder is still a signal', () => {
+    // Not zero on purpose: a ring really can be run out of one exchange account.
+    const { wallets, window } = coordinated()
+    expect(fundingCorrelation(wallets, window, withLabels([['funder', EXCHANGE]])).value)
+      .toBeGreaterThan(0)
+  })
+
+  it('CANNOT BE USED AS A BYPASS: a private shared funder still scores full', () => {
+    // The attack this guards against. A ring funds itself privately, then routes
+    // one extra transfer through a labelled exchange hoping the benign label
+    // launders the whole cluster. Scoring labelled and unlabelled funders
+    // SEPARATELY and taking the max is what defeats it.
+    const wallets = ['a', 'b', 'c', 'd']
+    const window = win([
+      // Three of four co-funded by an unlabelled private wallet.
+      row({ wallet: 'a', counterparty: 'private-ring-funder', timestamp: at(0) }),
+      row({ wallet: 'b', counterparty: 'private-ring-funder', timestamp: at(1) }),
+      row({ wallet: 'c', counterparty: 'private-ring-funder', timestamp: at(2) }),
+      // The decoy: the fourth funded from a labelled exchange.
+      row({ wallet: 'd', counterparty: 'exchange-hot-wallet', timestamp: at(3) }),
+    ])
+    const r = fundingCorrelation(wallets, window, withLabels([['exchange-hot-wallet', EXCHANGE]]))
+    // (3-1)/(4-1) from the private funder, entirely undiscounted.
+    expect(r.value).toBeCloseTo(2 / 3)
+    expect(r.note ?? '').not.toMatch(/labelled/)
+  })
+
+  it('scopes a label to its chain', () => {
+    // Same address, different chain, no label — the registry row must not leak.
+    const { wallets, window } = coordinated()
+    const otherChain: FeatureOptions = {
+      ...OPTS,
+      knownFunders: new Map([[`some-other-chain|funder`, EXCHANGE]]),
+    }
+    expect(fundingCorrelation(wallets, window, otherChain).value).toBe(1)
+  })
+
+  it('honours the configured multiplier', () => {
+    const { wallets, window } = coordinated()
+    const strict: FeatureOptions = {
+      ...withLabels([['funder', EXCHANGE]]),
+      knownFunderWeightMultiplier: 0.5,
+    }
+    expect(fundingCorrelation(wallets, window, strict).value).toBeCloseTo(0.5)
+  })
+
+  it('leaves confidence alone — coverage is a separate question from labelling', () => {
+    // A down-weighted value is still computed from the same evidence coverage.
+    const { wallets, window } = coordinated()
+    const r = fundingCorrelation(wallets, window, withLabels([['funder', EXCHANGE]]))
+    expect(r.confidence).toBe('HIGH')
+    expect(r.sourceEvidenceIds.length).toBe(5)
   })
 })
 

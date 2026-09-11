@@ -7,24 +7,46 @@
 import { env } from '../config/env.js'
 import { getEvidenceForWallets } from '../evidence/repository.js'
 import { extractFeatures } from './features.js'
-import type { EvidenceWindow, FeatureName, FeatureOptions, FeatureResult } from './types.js'
+import { loadKnownFunders } from './known-funders.js'
+import {
+  EMPTY_KNOWN_FUNDERS,
+  type EvidenceWindow,
+  type FeatureName,
+  type FeatureOptions,
+  type FeatureResult,
+} from './types.js'
 import { loadActivePolicy } from './policy.js'
 import { scoreFeatures, type ScoredFeature, type ScoreResult } from './scoring.js'
 
 export * from './features.js'
+export * from './known-funders.js'
 export * from './policy.js'
 export * from './robust.js'
 export * from './scoring.js'
 export * from './types.js'
 
-/** Tunables from config. Section 0.2 rule 1: never inline numbers. */
+/**
+ * Tunables from config. Section 0.2 rule 1: never inline numbers.
+ *
+ * Known funders default to EMPTY here because this function is synchronous and
+ * the registry lives in Postgres. Anything scoring real evidence must go through
+ * `featureOptions()` instead; this overload exists for pure unit tests and for
+ * callers that genuinely want the unlabelled behaviour.
+ */
 export function featureOptionsFromEnv(): FeatureOptions {
   return {
     fundingWindowHours: env.FUNDING_WINDOW_HOURS,
     timingNormalizationSeconds: env.TIMING_NORMALIZATION_SECONDS,
     ageNormalizationBlocks: env.AGE_NORMALIZATION_BLOCKS,
     protocolSequenceMaxLength: env.PROTOCOL_SEQUENCE_MAX_LENGTH,
+    knownFunders: EMPTY_KNOWN_FUNDERS,
+    knownFunderWeightMultiplier: env.KNOWN_FUNDER_WEIGHT_MULTIPLIER,
   }
+}
+
+/** The same tunables, with the known-funder registry actually loaded. */
+export async function featureOptions(): Promise<FeatureOptions> {
+  return { ...featureOptionsFromEnv(), knownFunders: await loadKnownFunders() }
 }
 
 /**
@@ -39,18 +61,22 @@ export async function extractClusterFeatures(
   wallets: readonly string[],
   opts: { since?: Date } = {},
 ): Promise<FeatureResult[]> {
-  const rows = await getEvidenceForWallets([...wallets], opts)
+  const [rows, options] = await Promise.all([
+    getEvidenceForWallets([...wallets], opts),
+    featureOptions(),
+  ])
   const window: EvidenceWindow = {
     events: rows.map((r) => ({
       id: r.id,
       wallet: r.wallet,
+      chain: r.chain,
       counterparty: r.counterparty,
       eventType: r.eventType,
       timestamp: r.timestamp,
       blockNumber: r.blockNumber,
     })),
   }
-  return extractFeatures(wallets, window, featureOptionsFromEnv())
+  return extractFeatures(wallets, window, options)
 }
 
 /**

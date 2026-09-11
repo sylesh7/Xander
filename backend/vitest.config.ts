@@ -6,8 +6,8 @@ export default defineConfig({
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
     env: {
       NODE_ENV: 'test',
-      DATABASE_URL: 'postgresql://user:pass@localhost:5432/xander',
-      REDIS_URL: 'redis://localhost:6379',
+      DATABASE_URL: 'postgresql://user:pass@localhost:5433/xander',
+      REDIS_URL: 'redis://localhost:6380',
       GRAPH_MARKET_API_TOKEN: 'test-token',
       // Falls through to the REAL key when one is already in process.env — which
       // happens under `npm run test:live` (`node --env-file=.env vitest.mjs`,

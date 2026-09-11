@@ -45,11 +45,45 @@ export interface FeatureResult {
 export interface RiskEvidenceRow {
   id: string
   wallet: string
+  /** Network slug the event was observed on. Scopes the known-funder lookup. */
+  chain: string
   counterparty: string | null
   eventType: string
   timestamp: Date
   blockNumber: bigint
 }
+
+/** Categories a labelled funder can carry — Xander V2 spec section 12.3. */
+export const KNOWN_FUNDER_CATEGORIES = [
+  'EXCHANGE',
+  'BRIDGE',
+  'FAUCET',
+  'PROTOCOL_TREASURY',
+  'KNOWN_DISTRIBUTOR',
+  'OTHER',
+] as const
+
+export type KnownFunderCategory = (typeof KNOWN_FUNDER_CATEGORIES)[number]
+
+/** A funder the registry has a label for. */
+export interface KnownFunder {
+  label: string
+  category: KnownFunderCategory
+  confidence: Confidence
+}
+
+/**
+ * Labelled funders, keyed by `chain|address` (both lowercased) — build the key
+ * with `knownFunderKey`, never by hand.
+ *
+ * A read-only Map rather than a repository handle so FUNDING_CORRELATION stays
+ * a pure function: the impure lookup happens once in `src/risk/index.ts` and
+ * the extractor only ever reads what it was handed.
+ */
+export type KnownFunderIndex = ReadonlyMap<string, KnownFunder>
+
+/** No labels at all. The behaviour every pure unit test gets by default. */
+export const EMPTY_KNOWN_FUNDERS: KnownFunderIndex = new Map()
 
 /**
  * Everything an extractor is allowed to see: the wallet set under analysis and
@@ -71,6 +105,14 @@ export interface FeatureOptions {
    * sequence on a busy wallet would dominate the whole scoring pass.
    */
   protocolSequenceMaxLength: number
+  /** Labelled benign funders. Empty means "no registry" — the pre-V2 behaviour. */
+  knownFunders: KnownFunderIndex
+  /**
+   * What a shared-funder signal is worth when the funder is labelled benign.
+   * Multiplies, never zeroes: a ring really can be funded out of one exchange
+   * account, so the signal is weakened rather than discarded.
+   */
+  knownFunderWeightMultiplier: number
 }
 
 export type FeatureExtractor = (

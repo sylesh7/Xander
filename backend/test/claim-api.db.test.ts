@@ -8,6 +8,7 @@
  * Everything the tests actually assert on (scoring, clustering, banding,
  * challenge issuance, receipts, the transaction) runs for real against Postgres.
  */
+import { randomBytes } from 'node:crypto'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import request from 'supertest'
 
@@ -173,10 +174,18 @@ describe('Phase 20 — the two synthetic scenarios, end to end', () => {
     if (!seeded) return
     const campaignId = track(campaign('unknown'))
 
-    const res = await auth(request(app).post('/screen-claim')).send({
-      wallet: '0x00000000000000000000000000000000deadbeef',
-      campaignId,
-    })
+    // Freshly random, so it is genuinely unknown every run.
+    //
+    // This used to be the literal constant 0x...deadbeef, which is a REAL
+    // mainnet address with real history. The moment anything screened it
+    // against a live Token API — as the V2 Phase 0 joint run did — 82 genuine
+    // evidence rows landed in the shared dev database, the wallet stopped being
+    // unknown, and this test flipped to ALLOW and stayed there. A test for
+    // "unknown wallet" has to supply a wallet that cannot have been seen, not
+    // one that merely looks synthetic.
+    const wallet = `0x${randomBytes(20).toString('hex')}`
+
+    const res = await auth(request(app).post('/screen-claim')).send({ wallet, campaignId })
 
     // Section 0.2 rule 4. An unknown wallet is not a safe wallet.
     expect(res.body.decision).toBe('PENDING_REVIEW')

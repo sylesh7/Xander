@@ -22,6 +22,7 @@ import {
   FIXTURE_CLUSTERED_WALLET,
   recomputeClusterForCandidates,
 } from '../src/interfaces/evidence-risk-api.js'
+import { KNOWN_FUNDER_SEED_ROWS } from './seed-data/known-funders.js'
 // --- SYLESH (Phases 13-25) ---------------------------------------------------
 import {
   FIXTURE_CAMPAIGN_ID,
@@ -162,6 +163,41 @@ async function seedPolicy(): Promise<void> {
   )
 }
 
+/**
+ * Known-funder registry — V2 spec section 12.3, closing the Readme.md promise
+ * that had no implementation behind it.
+ *
+ * Upserts on (chain, address) so re-seeding refreshes a corrected label without
+ * duplicating the row, and so an operator's manually-added label is never
+ * clobbered by a re-run unless it collides with a seeded address.
+ */
+async function seedKnownFunders(): Promise<void> {
+  for (const row of KNOWN_FUNDER_SEED_ROWS) {
+    await prisma.knownFunderAddress.upsert({
+      where: { chain_address: { chain: row.chain, address: row.address } },
+      create: row,
+      update: {
+        label: row.label,
+        category: row.category,
+        source: row.source,
+        confidence: row.confidence,
+      },
+    })
+  }
+
+  const byCategory = await prisma.knownFunderAddress.groupBy({
+    by: ['category'],
+    _count: { _all: true },
+  })
+  logger.info(
+    {
+      total: KNOWN_FUNDER_SEED_ROWS.length,
+      byCategory: Object.fromEntries(byCategory.map((g) => [g.category, g._count._all])),
+    },
+    '[seed:suganthan] known-funder registry seeded',
+  )
+}
+
 async function seedSuganthan(): Promise<void> {
   for (const d of DEPLOYMENTS) {
     // Keyed on deploymentId so re-seeding is idempotent and an operator's
@@ -176,6 +212,7 @@ async function seedSuganthan(): Promise<void> {
   logger.info({ deployments: count }, '[seed:suganthan] deployment registry seeded')
 
   await seedPolicy()
+  await seedKnownFunders()
   await seedFixtureScenarios()
 }
 
@@ -486,10 +523,58 @@ async function seedSylesh(): Promise<void> {
   await seedClaimLifecycleStates()
 }
 
+/**
+ * The seed chain, used by every fixture row so a refresh can find them without
+ * touching a single row of genuine on-chain evidence.
+ */
+const FIXTURE_CHAIN = 'seed'
+
+/**
+ * Re-stamps fixture evidence as freshly fetched.
+ *
+ * WHY THIS EXISTS. Fixture rows are written once and then deduplicated forever
+ * by @@unique([transactionHash, eventType, wallet, sourceId]) — the transaction
+ * hashes are deterministic (`0xseedring0a`), so a re-seed is a genuine no-op and
+ * the original `createdAt` survives. Meanwhile the Phase 11 freshness guard
+ * judges token-api evidence purely on `createdAt` recency against
+ * FRESHNESS_MAX_EVIDENCE_AGE_SECONDS (6h). Six hours after the first seed, every
+ * fixture wallet therefore resolves PENDING_REVIEW instead of its intended
+ * ALLOW/CHALLENGE/BLOCK — from wall-clock time alone, with no code defect. That
+ * cost two hand-written `UPDATE "EvidenceEvent" SET "createdAt" = now()`
+ * statements during the V1 audit session alone.
+ *
+ * ONLY `createdAt` MOVES. `timestamp` is the observation's on-chain time and the
+ * entire scenario is encoded in the RELATIVE spacing of those values — a tight
+ * funding burst, a month-long gap for the clean wallet, a 20-hour co-funding
+ * window for the challenge-band pair. Rewriting them to now() would collapse
+ * every scenario into a single instant and silently invert what the fixtures
+ * test. The freshness guard never reads `timestamp`, so moving `createdAt`
+ * alone is both sufficient and safe.
+ *
+ * Scoped to `chain = 'seed'`, which no real evidence source ever emits, so this
+ * can never rewrite the provenance of a genuine observation.
+ */
+async function refreshFixtureFreshness(): Promise<void> {
+  const { count } = await prisma.evidenceEvent.updateMany({
+    where: { chain: FIXTURE_CHAIN },
+    data: { createdAt: new Date() },
+  })
+  logger.info({ rows: count }, '[seed] fixture evidence re-stamped as fresh')
+}
+
 async function main(): Promise<void> {
+  // `db:seed:refresh` re-stamps existing fixtures and exits — the fast path for
+  // "my fixture wallet went PENDING_REVIEW overnight", with no re-seeding.
+  if (process.argv.includes('--refresh-only')) {
+    logger.info('refreshing fixture freshness…')
+    await refreshFixtureFreshness()
+    return
+  }
+
   logger.info('seeding xander…')
   await seedSuganthan()
   await seedSylesh()
+  await refreshFixtureFreshness()
   logger.info('seed complete')
 }
 

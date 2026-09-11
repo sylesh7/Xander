@@ -132,6 +132,25 @@ const envSchema = z.object({
    */
   PROTOCOL_SEQUENCE_MAX_LENGTH: num(200),
 
+  // --- Known-funder registry (V2 Phase 0, spec section 12.3) --------------
+  /**
+   * What a shared-funder signal is worth when the shared funder is a LABELLED
+   * benign operational address — an exchange hot wallet, a bridge, a faucet.
+   *
+   * Not zero on purpose. A coordinated ring really can be funded out of one
+   * exchange account inside a tight window, so a labelled funder has to reduce
+   * the signal rather than erase it. 0.15 keeps such a group scoreable while
+   * making the shared funder alone insufficient to reach the CHALLENGE band.
+   *
+   * This is the concrete mitigation for the Arbitrum-style false positive the
+   * README calls "the single most important lesson": thousands of unrelated
+   * people withdrawing from the same exchange in the same hour after an airdrop
+   * announcement are not a Sybil ring.
+   */
+  KNOWN_FUNDER_WEIGHT_MULTIPLIER: num(0.15),
+  /** How long the known-funder table is cached in-process. Mirrors the deployment registry. */
+  KNOWN_FUNDER_CACHE_TTL_SECONDS: num(300),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them

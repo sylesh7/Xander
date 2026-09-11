@@ -22,6 +22,7 @@
     "db:migrate": "prisma migrate dev",
     "db:studio": "prisma studio",
     "db:seed": "tsx --env-file=.env prisma/seed.ts",
+    "db:seed:refresh": "tsx --env-file=.env prisma/seed.ts --refresh-only",
     "infra:up": "docker compose up -d",
     "infra:down": "docker compose down",
     "substreams:pack": "node scripts/substreams-pack.mjs",

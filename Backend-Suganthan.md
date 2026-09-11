@@ -222,6 +222,42 @@ model Investigation {
   @@index([clusterId])
 }
 
+// Added 2026-09-12 by SUGANTHAN (Xander V2 Phase 0, spec section 12.3),
+// migration `add_known_funder_address`. PURELY ADDITIVE — no existing model
+// changed, and nothing on Sylesh's track reads or writes it.
+//
+// Closes a promise Readme.md has made since day one and called "the single most
+// important lesson" from the Arbitrum airdrop precedent, with no implementation
+// behind it: FUNDING_CORRELATION treated a shared funder identically whether it
+// was a private wallet or a Binance hot wallet. The extractor now scores
+// labelled and unlabelled funders separately and takes
+// `max(unlabelled, labelled x KNOWN_FUNDER_WEIGHT_MULTIPLIER)`, so a benign
+// shared funder is down-weighted while a ring cannot launder itself by routing
+// one extra transfer through an exchange.
+//
+// `chain` is a network slug, NOT the numeric chainId the V2 spec's field list
+// names — it has to join against EvidenceEvent.chain, which is a slug.
+// `source` and `confidence` are load-bearing: a funder label is an assertion by
+// somebody, and a wrong one is a security hole in both directions, so the row
+// records who said so. validFrom/validTo let a rotated hot wallet stop
+// excusing new evidence without deleting the label a past decision was made
+// under.
+model KnownFunderAddress {
+  id         String    @id @default(cuid())
+  address    String
+  chain      String
+  label      String // "Binance 14", "Base: L1StandardBridge"
+  category   String // EXCHANGE | BRIDGE | FAUCET | PROTOCOL_TREASURY | KNOWN_DISTRIBUTOR | OTHER
+  source     String // provenance of the label — a URL or dataset name, never blank
+  confidence String // "LOW" | "MEDIUM" | "HIGH"
+  validFrom  DateTime  @default(now())
+  validTo    DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([chain, address])
+}
+
 // Phase 10.2/10.4. One row per (chain, moduleName) stream. The cursor is an
 // OPAQUE string per the Substreams sink contract — never parsed, only stored
 // and replayed. Persisted AFTER a batch's evidence is durably written, never
