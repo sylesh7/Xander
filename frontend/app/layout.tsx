@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 
 export const metadata: Metadata = {
-  title: 'Textmode Overlay | Turn the web into textmode',
+  title: 'Xander | Graph-Native Sybil Risk Engine',
   description:
-    'A free browser extension that turns visible canvas and video elements into live ASCII and textmode art.',
+    'A Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie Check as a selective escalation layer.',
 };
 
 export default function RootLayout({
