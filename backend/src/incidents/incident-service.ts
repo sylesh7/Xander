@@ -86,7 +86,10 @@ export async function openIncident(input: OpenIncidentInput) {
           'incident escalated',
         )
         await contain(escalated.id)
-        return escalated
+        // An incident that escalated INTO HIGH/CRITICAL needs a human even
+        // though the incident row already existed.
+        await raiseOperatorAction(escalated.id)
+        return prisma.incident.findUniqueOrThrow({ where: { id: escalated.id } })
       }
       return existing
     }
@@ -111,7 +114,67 @@ export async function openIncident(input: OpenIncidentInput) {
   )
 
   if (input.contain !== false) await contain(incident.id)
+  await raiseOperatorAction(incident.id)
   return prisma.incident.findUniqueOrThrow({ where: { id: incident.id } })
+}
+
+/**
+ * Puts a serious incident in front of a human — sections 14.1 and 19.
+ *
+ * Section 14.1 ends the incident workflow with "notify operator", and section
+ * 19 calls the mobile surface a HUMAN AUTHORITY PLANE. Neither is true if
+ * nothing ever reaches it: containment is automatic and blunt, and the decision
+ * about what happens NEXT — restore, narrow, or freeze outright — is exactly
+ * the judgement a person is supposed to make.
+ *
+ * Only HIGH and CRITICAL raise one. Queueing every LOW incident for a human is
+ * how an alert queue becomes noise nobody reads, which is worse than no queue.
+ *
+ * Best-effort: containment has already happened and IS the enforcement. A
+ * failure to enqueue must not roll back a real freeze.
+ */
+async function raiseOperatorAction(incidentId: string): Promise<void> {
+  const incident = await prisma.incident.findUniqueOrThrow({ where: { id: incidentId } })
+  if (severityRank(incident.severity) < severityRank('HIGH')) return
+  if (!incident.actorId) return
+
+  // One open action per incident. An escalating stream must not queue the same
+  // decision twice — the operator would answer one and be left holding a stale
+  // duplicate whose binding no longer matches anything.
+  const existing = await prisma.pendingAction.findFirst({
+    where: { incidentId, status: 'PENDING' },
+  })
+  if (existing) return
+
+  try {
+    const agent = await prisma.agent.findFirst({
+      where: { actorId: incident.actorId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true },
+    })
+
+    const { createPendingAction } = await import('../control/control-service.js')
+    const action = await createPendingAction({
+      subjectType: 'INCIDENT',
+      subjectId: incident.id,
+      summary: `${incident.type} on ${agent?.name ?? 'actor'} — ${incident.severity}. ${
+        incident.mitigation && incident.mitigation !== 'NONE'
+          ? `Already contained (${incident.mitigation}).`
+          : 'Not yet contained.'
+      } Decide what happens next.`,
+      // FREEZE is offered because containment is reversible by design and an
+      // operator looking at a live incident is the right person to make it
+      // permanent. APPROVE here means "stand the agent back up".
+      allowed: ['APPROVE', 'LIMIT', 'FREEZE'],
+      actorId: incident.actorId,
+      agentId: agent?.id ?? null,
+      incidentId: incident.id,
+      severity: incident.severity,
+    })
+    logger.info({ incidentId, actionId: action.id }, 'operator action raised for incident')
+  } catch (err) {
+    logger.error({ incidentId, err }, 'could not raise an operator action; containment stands')
+  }
 }
 
 /**

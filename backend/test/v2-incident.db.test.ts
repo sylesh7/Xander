@@ -35,6 +35,7 @@ beforeAll(() => {
 })
 
 afterAll(async () => {
+  await prisma.pendingAction.deleteMany({ where: { actorId: { in: createdActorIds } } })
   await prisma.evidenceEvent.deleteMany({ where: { wallet: { in: createdWallets } } })
   await prisma.incident.deleteMany({ where: { actorId: { in: createdActorIds } } })
   await prisma.actor.deleteMany({ where: { id: { in: createdActorIds } } })
@@ -292,6 +293,62 @@ describe('V2 Phase 10 — counter-evidence search', () => {
     const report = await searchCounterEvidence({ wallets: [a] })
     expect(report.findings.every((f) => f.kind === 'SHARED_FUNDER_IS_LABELLED')).toBe(true)
   }, 90_000)
+})
+
+describe('V2 Phase 10 — a serious incident reaches a human', () => {
+  it('RAISES A PENDING OPERATOR ACTION on a HIGH incident', async () => {
+    // Section 14.1 ends with "notify operator" and section 19 calls the mobile
+    // surface a human authority plane. Neither is true if nothing reaches it.
+    const { actorId } = await actorWithCapability()
+    const incident = await openIncident({
+      actorId,
+      type: 'COORDINATION_DETECTED',
+      severity: 'HIGH',
+      source: 'phase10-test',
+    })
+
+    const actions = await prisma.pendingAction.findMany({ where: { incidentId: incident.id } })
+    expect(actions.length).toBe(1)
+    expect(actions[0]!.status).toBe('PENDING')
+    expect(actions[0]!.allowed).toContain('FREEZE')
+    expect(actions[0]!.severity).toBe('HIGH')
+    await prisma.pendingAction.deleteMany({ where: { incidentId: incident.id } })
+  }, 120_000)
+
+  it('does NOT queue a human for a LOW incident', async () => {
+    // Queueing every low incident is how an alert queue becomes noise nobody
+    // reads, which is worse than no queue.
+    const { actorId } = await actorWithCapability()
+    const incident = await openIncident({
+      actorId,
+      type: 'MANUAL',
+      severity: 'LOW',
+      source: 'phase10-test',
+    })
+    expect(await prisma.pendingAction.count({ where: { incidentId: incident.id } })).toBe(0)
+  }, 90_000)
+
+  it('raises exactly ONE action even when the incident repeats', async () => {
+    // An escalating stream must not queue the same decision twice.
+    const { actorId } = await actorWithCapability()
+    const first = await openIncident({ actorId, type: 'TRUST_COLLAPSE', severity: 'HIGH', source: 's' })
+    await openIncident({ actorId, type: 'TRUST_COLLAPSE', severity: 'HIGH', source: 's' })
+    await openIncident({ actorId, type: 'TRUST_COLLAPSE', severity: 'CRITICAL', source: 's' })
+
+    const actions = await prisma.pendingAction.findMany({ where: { incidentId: first.id } })
+    expect(actions.length).toBe(1)
+    await prisma.pendingAction.deleteMany({ where: { incidentId: first.id } })
+  }, 150_000)
+
+  it('raises one when an incident ESCALATES into HIGH', async () => {
+    const { actorId } = await actorWithCapability()
+    const low = await openIncident({ actorId, type: 'ANOMALOUS_VELOCITY', severity: 'LOW', source: 's' })
+    expect(await prisma.pendingAction.count({ where: { incidentId: low.id } })).toBe(0)
+
+    await openIncident({ actorId, type: 'ANOMALOUS_VELOCITY', severity: 'CRITICAL', source: 's' })
+    expect(await prisma.pendingAction.count({ where: { incidentId: low.id } })).toBe(1)
+    await prisma.pendingAction.deleteMany({ where: { incidentId: low.id } })
+  }, 150_000)
 })
 
 describe('V2 Phase 10 — the incident lifecycle', () => {
