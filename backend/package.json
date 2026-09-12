@@ -35,7 +35,8 @@
     "ens:register-parent": "tsx --env-file=.env scripts/ens-register-parent.ts",
     "ens:deploy-registry": "tsx --env-file=.env scripts/ens-deploy-registry.ts",
     "check:ens-agent": "tsx --env-file=.env scripts/check-ens-agent.ts",
-    "worker": "tsx --env-file=.env src/workflow/worker.ts"
+    "worker": "tsx --env-file=.env src/workflow/worker.ts",
+    "check:agent-ens": "tsx --env-file=.env scripts/check-agent-ens.ts"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"

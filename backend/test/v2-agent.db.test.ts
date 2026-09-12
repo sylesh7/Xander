@@ -380,6 +380,80 @@ describe('V2 Phase 5 — liveness challenge integrity', () => {
   })
 })
 
+describe('V2 Phase 5.5 — ENS reporting is honest when the chain is unavailable', () => {
+  // The test environment has no ENS operator key, which is a legitimate
+  // production configuration (read-only deployment). What matters is that the
+  // API says so plainly rather than implying an identity exists.
+  it('reports NOT minted, with a reason, when no ENS label is given', async () => {
+    if (!seeded) return
+    const created = await auth(request(app).post('/v2/agents')).send({
+      wallet: randomWallet(),
+      name: 'NoEns',
+    })
+    createdActorIds.push(created.body.actorId as string)
+
+    expect(created.status).toBe(201)
+    expect(created.body.ens.minted).toBe(false)
+    expect(created.body.ens.name).toBeNull()
+    expect(created.body.ens.skipReason).toBeTruthy()
+  }, 60_000)
+
+  it('an ENS mint failure does not fail agent creation', async () => {
+    if (!seeded) return
+    // The agent is a real, usable record either way. Rolling it back because
+    // Sepolia was slow would trade a working agent for no agent.
+    const created = await auth(request(app).post('/v2/agents')).send({
+      wallet: randomWallet(),
+      name: 'WantsEns',
+      ensLabel: `t${randomBytes(4).toString('hex')}`,
+    })
+    createdActorIds.push(created.body.actorId as string)
+
+    expect(created.status).toBe(201)
+    expect(created.body.agentId).toBeTruthy()
+    expect(created.body.status).toBe('DRAFT')
+    // Minting was skipped for a stated reason — never silently reported as done.
+    expect(created.body.ens.minted).toBe(false)
+    expect(created.body.ens.skipReason).toBe('NO_OPERATOR_KEY')
+  }, 60_000)
+
+  it('rejects a malformed ENS label at the schema boundary', async () => {
+    const res = await auth(request(app).post('/v2/agents')).send({
+      wallet: randomWallet(),
+      name: 'BadLabel',
+      ensLabel: 'Not A Label',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('FREEZE STILL WORKS when the chain is unreachable', async () => {
+    if (!seeded) return
+    // The critical property: local suspension is the enforcement. Making
+    // revocation depend on a healthy RPC would turn an RPC outage into an
+    // inability to stop a misbehaving agent.
+    const wallet = randomWallet()
+    const created = await auth(request(app).post('/v2/agents')).send({ wallet, name: 'Chainless' })
+    const { agentId, actorId } = created.body as { agentId: string; actorId: string }
+    createdActorIds.push(actorId)
+
+    const worldChallengeId = await passedWorldChallenge(wallet.toLowerCase())
+    await auth(request(app).post(`/v2/agents/${agentId}/verify`)).send({ worldChallengeId })
+    expect(await prisma.capability.count({ where: { actorId, status: 'ACTIVE' } })).toBeGreaterThan(0)
+
+    const frozen = await auth(request(app).post(`/v2/agents/${agentId}/freeze`)).send({
+      reason: 'chain down',
+    })
+    expect(frozen.status).toBe(200)
+    expect(frozen.body.status).toBe('FROZEN')
+    expect(frozen.body.capabilitiesSuspended).toBeGreaterThan(0)
+    // Capabilities really are suspended...
+    expect(await prisma.capability.count({ where: { actorId, status: 'ACTIVE' } })).toBe(0)
+    // ...and the response does NOT claim an on-chain revocation happened.
+    expect(frozen.body.ens.revokedOnChain).toBe(false)
+    expect(frozen.body.ens.skipReason).toBeTruthy()
+  }, 120_000)
+})
+
 describe('V2 Phase 5 — lifecycle', () => {
   it('permits only legal status transitions', () => {
     expect(canTransition('DRAFT', 'VERIFYING')).toBe(true)

@@ -21,6 +21,12 @@ import { prisma } from '../lib/prisma.js'
 import { grantCapability } from '../capabilities/capability-service.js'
 import { buildTrustContext } from '../trust/trust-context.js'
 import { recordTrustSignal } from '../trust/trust-history.js'
+import {
+  mintAgentIdentity,
+  revokeAgentRolesOnChain,
+  syncAgentRolesOnChain,
+  type EnsOutcome,
+} from './agent-ens.js'
 
 export class AgentError extends Error {
   constructor(
@@ -72,6 +78,14 @@ export interface CreateAgentInput {
   name: string
   agentUri?: string
   configuration?: Record<string, unknown>
+  /**
+   * Label for the agent's ENS subname, e.g. `alpha` -> alpha.xander.eth.
+   *
+   * Opt-in rather than automatic. Minting is a real transaction that costs gas
+   * and takes ~15s, so an API that silently did it on every create would make
+   * agent creation slow and expensive for callers who never wanted a name.
+   */
+  ensLabel?: string
 }
 
 export async function createAgent(input: CreateAgentInput): Promise<Agent> {
@@ -89,6 +103,61 @@ export async function createAgent(input: CreateAgentInput): Promise<Agent> {
   })
   logger.info({ agentId: agent.id, actorId: input.actorId }, 'agent created')
   return agent
+}
+
+export interface CreateAgentResult {
+  agent: Agent
+  ens: EnsOutcome & { fqdn: string | null; expiresAt: Date | null }
+}
+
+/**
+ * Creates an agent and, when a label is given, mints its ENS identity.
+ *
+ * A minting failure does NOT fail agent creation. The agent is a real,
+ * usable record either way, and rolling it back because Sepolia was slow would
+ * trade a working agent for no agent. The outcome is returned so the caller can
+ * see exactly what happened rather than assuming a name exists.
+ */
+export async function createAgentWithIdentity(
+  input: CreateAgentInput,
+): Promise<CreateAgentResult> {
+  const agent = await createAgent(input)
+
+  if (!input.ensLabel) {
+    return {
+      agent,
+      ens: {
+        attempted: false,
+        succeeded: false,
+        skipReason: 'NO_ENS_NAME',
+        txHash: null,
+        detail: 'no ensLabel supplied',
+        fqdn: null,
+        expiresAt: null,
+      },
+    }
+  }
+
+  try {
+    const minted = await mintAgentIdentity({ agentId: agent.id, label: input.ensLabel })
+    const refreshed = await prisma.agent.findUnique({ where: { id: agent.id } })
+    return { agent: refreshed ?? agent, ens: minted }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error({ agentId: agent.id, err }, 'ENS identity minting failed; agent still created')
+    return {
+      agent,
+      ens: {
+        attempted: true,
+        succeeded: false,
+        skipReason: null,
+        txHash: null,
+        detail: `minting failed: ${message}`,
+        fqdn: null,
+        expiresAt: null,
+      },
+    }
+  }
 }
 
 async function transition(agentId: string, to: AgentStatus, reason: string): Promise<Agent> {
@@ -138,6 +207,7 @@ export async function establishAssurance(input: AssuranceEstablishedInput): Prom
   level: 'WORLD_ONLY' | 'WORLD_PLUS_ACTIVE'
   expiresAt: Date
   capabilityIds: string[]
+  ens: EnsOutcome
 }> {
   const agent = await prisma.agent.findUnique({ where: { id: input.agentId } })
   if (!agent) throw new AgentError(`No agent ${input.agentId}.`, 404)
@@ -228,7 +298,19 @@ export async function establishAssurance(input: AssuranceEstablishedInput): Prom
 
   const active = await transition(agent.id, 'ACTIVE', 'initial capabilities granted')
 
-  return { agent: active ?? backed, leaseId: lease.id, level, expiresAt, capabilityIds }
+  // Mirror the envelope onto EAC roles. Best-effort: the capabilities are
+  // already real and enforced in Xander, so a chain hiccup must not undo a
+  // completed verification.
+  let ens: EnsOutcome
+  try {
+    ens = await syncAgentRolesOnChain(agent.id)
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    logger.error({ agentId: agent.id, err }, 'on-chain role sync failed after assurance')
+    ens = { attempted: true, succeeded: false, skipReason: null, txHash: null, detail: message }
+  }
+
+  return { agent: active ?? backed, leaseId: lease.id, level, expiresAt, capabilityIds, ens }
 }
 
 /**
@@ -288,12 +370,21 @@ async function bootstrapCapabilities(args: {
  * A state transition AND a capability suspension, never just a flag. An agent
  * marked frozen whose capabilities still pass `checkCapability` is not frozen.
  */
-export async function freezeAgent(agentId: string, reason: string): Promise<Agent> {
+export async function freezeAgent(
+  agentId: string,
+  reason: string,
+): Promise<{ agent: Agent; suspended: number; ens: EnsOutcome }> {
   const agent = await transition(agentId, 'FROZEN', reason)
+
+  // LOCAL SUSPENSION FIRST, and it is the enforcement. If the chain is
+  // unreachable the agent is still frozen — making revocation depend on a
+  // healthy RPC would turn an RPC outage into an inability to stop a
+  // misbehaving agent.
   const { count } = await prisma.capability.updateMany({
     where: { actorId: agent.actorId, status: 'ACTIVE' },
     data: { status: 'SUSPENDED' },
   })
+
   await recordTrustSignal({
     actorId: agent.actorId,
     kind: 'POLICY_VIOLATION',
@@ -301,8 +392,13 @@ export async function freezeAgent(agentId: string, reason: string): Promise<Agen
     detail: `agent frozen: ${reason}`,
     source: 'agent-service',
   })
-  logger.info({ agentId, suspended: count, reason }, 'agent frozen')
-  return agent
+
+  const ens = await revokeAgentRolesOnChain(agentId)
+  logger.info(
+    { agentId, suspended: count, reason, ensSucceeded: ens.succeeded },
+    'agent frozen',
+  )
+  return { agent, suspended: count, ens }
 }
 
 /** Unfreeze — restores suspended capabilities, but only if the lease still holds. */
@@ -333,7 +429,10 @@ export async function unfreezeAgent(agentId: string, reason: string): Promise<Ag
 }
 
 /** Revoke — terminal. Capabilities are revoked, not suspended. */
-export async function revokeAgent(agentId: string, reason: string): Promise<Agent> {
+export async function revokeAgent(
+  agentId: string,
+  reason: string,
+): Promise<{ agent: Agent; ens: EnsOutcome }> {
   const agent = await transition(agentId, 'REVOKED', reason)
   await prisma.capability.updateMany({
     where: { actorId: agent.actorId, status: { in: ['ACTIVE', 'SUSPENDED'] } },
@@ -343,8 +442,10 @@ export async function revokeAgent(agentId: string, reason: string): Promise<Agen
     where: { actorId: agent.actorId, status: 'ACTIVE' },
     data: { status: 'REVOKED' },
   })
-  logger.info({ agentId, reason }, 'agent revoked')
-  return agent
+
+  const ens = await revokeAgentRolesOnChain(agentId)
+  logger.info({ agentId, reason, ensSucceeded: ens.succeeded }, 'agent revoked')
+  return { agent, ens }
 }
 
 export async function getAgent(agentId: string) {

@@ -21,9 +21,11 @@ import { ACTION_TYPES } from '../intent/intent-types.js'
 import { createIntent, getIntent, IntentError } from '../intent/intent-service.js'
 import { buildTrustContext } from '../trust/trust-context.js'
 import { resolveActorForWallet } from '../actor/actor-resolver.js'
+import { AGENT_LABEL_PATTERN } from '../ens/ens-names.js'
+import { readAgentEnsState } from '../agents/agent-ens.js'
 import {
   AgentError,
-  createAgent,
+  createAgentWithIdentity,
   establishAssurance,
   freezeAgent,
   getAgent,
@@ -262,6 +264,11 @@ const createAgentSchema = z.object({
   name: z.string().min(1).max(120),
   agentUri: z.string().url().optional(),
   configuration: z.record(z.unknown()).optional(),
+  /** Mints <ensLabel>.<parent>.eth. Opt-in — minting is a real transaction. */
+  ensLabel: z
+    .string()
+    .regex(AGENT_LABEL_PATTERN, 'Lowercase a-z, 0-9 and hyphen; 3-63 chars.')
+    .optional(),
 })
 
 const livenessStartSchema = z.object({
@@ -310,21 +317,30 @@ v2Router.post(
     }
 
     const actorId = body.actorId ?? (await resolveActorForWallet(body.wallet!)).id
-    const agent = await createAgent({
+    const { agent, ens } = await createAgentWithIdentity({
       actorId,
       name: body.name,
       ...(body.agentUri ? { agentUri: body.agentUri } : {}),
       ...(body.configuration ? { configuration: body.configuration } : {}),
+      ...(body.ensLabel ? { ensLabel: body.ensLabel } : {}),
     })
 
     // Section 11.2's response shape: what still has to happen before this
-    // agent can act.
+    // agent can act — plus exactly what did or did not happen on-chain, so a
+    // caller never has to assume a name exists.
     res.status(201).json({
       agentId: agent.id,
       actorId: agent.actorId,
       name: agent.name,
       status: agent.status,
       verification: { world: 'REQUIRED', activeLiveness: 'OPTIONAL' },
+      ens: {
+        name: agent.ensName,
+        minted: ens.succeeded,
+        skipReason: ens.skipReason,
+        txHash: ens.txHash,
+        detail: ens.detail,
+      },
     })
   }),
 )
@@ -345,7 +361,11 @@ v2Router.get(
       res.status(404).json({ error: 'not_found', message: 'No such agent.' })
       return
     }
-    res.json(agent)
+    // Read the chain rather than trusting the stored name: the on-chain roles
+    // are the public record, and a divergence between it and the database is
+    // exactly what an operator needs to see.
+    const ens = await readAgentEnsState(agent.id).catch(() => null)
+    res.json({ ...agent, ens })
   }),
 )
 
@@ -369,6 +389,12 @@ v2Router.post(
         expiresAt: result.expiresAt.toISOString(),
       },
       capabilityIds: result.capabilityIds,
+      ens: {
+        mirrored: result.ens.succeeded,
+        skipReason: result.ens.skipReason,
+        txHash: result.ens.txHash,
+        detail: result.ens.detail,
+      },
     })
   }),
 )
@@ -378,8 +404,15 @@ v2Router.post(
   validateBody(reasonSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof reasonSchema>
-    const agent = await freezeAgent(String(req.params.id), body.reason)
-    res.json({ agentId: agent.id, status: agent.status })
+    const { agent, suspended, ens } = await freezeAgent(String(req.params.id), body.reason)
+    res.json({
+      agentId: agent.id,
+      status: agent.status,
+      capabilitiesSuspended: suspended,
+      // Reported separately and honestly: the local suspension IS the
+      // enforcement, and the chain may lag or fail (section 18.2).
+      ens: { revokedOnChain: ens.succeeded, skipReason: ens.skipReason, txHash: ens.txHash, detail: ens.detail },
+    })
   }),
 )
 
@@ -398,8 +431,12 @@ v2Router.post(
   validateBody(reasonSchema),
   asyncHandler(async (req, res) => {
     const body = req.body as z.infer<typeof reasonSchema>
-    const agent = await revokeAgent(String(req.params.id), body.reason)
-    res.json({ agentId: agent.id, status: agent.status })
+    const { agent, ens } = await revokeAgent(String(req.params.id), body.reason)
+    res.json({
+      agentId: agent.id,
+      status: agent.status,
+      ens: { revokedOnChain: ens.succeeded, skipReason: ens.skipReason, txHash: ens.txHash, detail: ens.detail },
+    })
   }),
 )
 
