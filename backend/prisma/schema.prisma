@@ -208,6 +208,204 @@ model EvidenceReceipt {
 // reprocessed on restart rather than silently skipped. blockNumber is kept
 // alongside the cursor purely for /health reporting (Phase 11) — the cursor,
 // not this number, is what the stream actually resumes from.
+// ===========================================================================
+// XANDER V2 — Phase 1: Actor + Intent foundation (spec sections 5.1-5.10)
+//
+// ADDITIVE, 2026-09-12, migration `add_actor_intent_foundation`. Logged in
+// Section 0.4 of BOTH markdown specs. Not one V1 model, column, index or
+// constraint changed, and no V1 code path reads or writes any table below —
+// `/v2/*` is a parallel surface, the Claim Gate keeps working untouched.
+//
+// The framing this exists to replace: V1 is `wallet -> score -> World -> claim`.
+// V2 is `actor -> intent -> evidence -> trust -> policy -> capability`. Phase 1
+// lays the first two nouns down so later phases have something to hang trust
+// and capabilities off.
+//
+// WHAT IS DELIBERATELY NOT HERE. The spec's section 5.3 describes a `Wallet`
+// with `chainId` and `actorId`. V1 already owns a `Wallet` model keyed on
+// `address` with no chainId, and rewriting it would break the clustering and
+// evidence paths that V1's whole risk engine runs on — exactly what "V2 is
+// additive" (invariant 3.8) forbids. The actor-to-wallet link therefore lives
+// in `ActorIdentity` alone, which keeps ONE authoritative edge instead of two
+// that can silently disagree.
+// ===========================================================================
+
+/**
+ * The logical entity making or controlling an action.
+ *
+ * Invariant 3.4: wallet != human != agent. An Actor is not a person. It is
+ * whatever is acting, and the evidence linking it to identities is held in
+ * ActorIdentity rows with their own provenance and verification state.
+ *
+ * There is deliberately NO field asserting "this actor IS person X" — the spec
+ * calls that out explicitly. `displayName` is an operator's label for a row in
+ * a console, never an identity claim.
+ */
+model Actor {
+  id          String   @id @default(cuid())
+  actorType   String // HUMAN | WALLET | AGENT | ORGANIZATION
+  status      String   @default("ACTIVE") // ACTIVE | RESTRICTED | FROZEN | REVOKED
+  displayName String? // operator-facing label only — never an identity assertion
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  identities ActorIdentity[]
+  intents    Intent[]
+
+  @@index([actorType, status])
+}
+
+/**
+ * Maps an actor to one external evidence source.
+ *
+ * `@@unique([kind, externalId])` is both the index section 26 requires and the
+ * invariant that matters: one wallet address resolves to exactly one Actor. Two
+ * Actors claiming the same wallet would make "who is acting?" unanswerable, and
+ * the resolver races that would produce it are real — V1 hit the identical race
+ * on Claim and fixed it with a unique constraint plus catch-and-reread, which
+ * is the same pattern the actor resolver uses.
+ *
+ * `status` starts UNVERIFIED and stays there. Observing that an address exists
+ * is not proof anyone controls it (invariant 3.3), so only a real assurance
+ * flow — World in Phase 5 — may move it to VERIFIED.
+ */
+model ActorIdentity {
+  id           String    @id @default(cuid())
+  actorId      String
+  actor        Actor     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  kind         String // WALLET | WORLD | ERC8004 | EAS | ENS | OTHER
+  externalId   String // wallet address (lowercased), World reference, ERC-8004 agent id, ENS name
+  status       String    @default("UNVERIFIED") // UNVERIFIED | VERIFIED | REVOKED
+  verifiedAt   DateTime?
+  source       String // how this link was learned — never blank
+  metadataJson Json?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@unique([kind, externalId])
+  @@index([actorId])
+}
+
+/**
+ * A requested action, recorded BEFORE it is authorized.
+ *
+ * The point of persisting an intent rather than authorizing inline: section 3.5
+ * scopes permission to the action, so there has to be a durable row naming what
+ * was asked for, which decision answered it, and what receipt it produced.
+ * Phase 4's Temporal workflows resume against this row.
+ *
+ * `amount` is a string, never a float — on-chain amounts exceed float precision
+ * and this is the same rule EvidenceEvent.amount follows.
+ *
+ * `parametersHash` is a deterministic digest of the semantic fields, so a
+ * decision can be tied to the exact parameters it was made against. Re-deciding
+ * a mutated intent is then detectable rather than invisible.
+ */
+model Intent {
+  id             String   @id @default(cuid())
+  actorId        String
+  actor          Actor    @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  resourceType   String
+  resourceId     String
+  actionType     String // CLAIM | VOTE | MINT | TRADE | BORROW | TRANSFER | API_REQUEST | X402_PAYMENT | AGENT_DELEGATION
+  chainId        Int?
+  targetAddress  String?
+  amount         String? // string, never float
+  asset          String?
+  protocol       String?
+  parametersHash String
+  expiresAt      DateTime
+  idempotencyKey String   @unique
+  status         String // PENDING | DECIDED | EXPIRED | CANCELLED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  decisions AuthorizationDecision[]
+  receipts  ActionReceipt[]
+
+  @@index([actorId, status, expiresAt])
+}
+
+/**
+ * The authorization answer for one intent, with its full lineage.
+ *
+ * Invariant 3.6: every security decision stores the evidence it rested on, the
+ * policy version that judged it, and what it concluded. `evidenceIds` is that
+ * lineage, not a convenience field.
+ *
+ * `result` carries the V2 outcome set including LIMIT and REVIEW. Phase 1 never
+ * emits LIMIT — attenuation needs the capability engine that arrives in Phase 3
+ * — and it maps V1's PENDING_REVIEW onto REVIEW. That mapping must never become
+ * ALLOW: holding a claim when evidence is stale is the behaviour both specs
+ * call the single most damaging bug available in this codebase to get wrong.
+ *
+ * trustSnapshotId / policyId / capabilityId / workflowId are plain nullable ids,
+ * not relations, because Phases 2, 3 and 4 own those tables. They are written
+ * now so the column does not have to be added under a live schema later.
+ */
+model AuthorizationDecision {
+  id                String   @id @default(cuid())
+  intentId          String
+  intent            Intent   @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  trustSnapshotId   String? // Phase 2
+  policyId          String? // Phase 3
+  policyVersion     String
+  result            String // ALLOW | LIMIT | CHALLENGE | REVIEW | BLOCK
+  reasonCode        String
+  reasonSummary     String
+  evidenceIds       Json // string[] — the evidence lineage for this decision
+  requiredAssurance String? // "SELFIE_CHECK" | null
+  // The trust figures this decision was actually made against. They live here
+  // in Phase 1 because TrustSnapshot does not exist until Phase 2, and
+  // invariant 3.6 requires a decision to record the trust state it rested on —
+  // a decision that cannot say what score produced it is not reconstructable.
+  // Phase 2 moves these into TrustSnapshot and populates trustSnapshotId.
+  riskScore         Float
+  clusterId         String?
+  confidence        String
+  capabilityId      String? // Phase 3
+  workflowId        String? // Phase 4
+  createdAt         DateTime @default(now())
+
+  receipts ActionReceipt[]
+
+  @@index([intentId])
+}
+
+/**
+ * V1's Evidence Receipt pattern, extended to any action (spec section 5.10).
+ *
+ * V1's `EvidenceReceipt` is untouched and still serves the claim flow. This is
+ * the additive V2 equivalent, keyed on an intent rather than a claim.
+ *
+ * The two hashes are what make a receipt a receipt: they pin the evidence set
+ * and the decision payload as they were at decision time, so the action can be
+ * reconstructed later without re-querying The Graph or World, and any drift
+ * between then and now is provable rather than arguable.
+ *
+ * `executionStatus` starts NOT_EXECUTED and Phase 1 never moves it. Section
+ * 18.2 is explicit — nothing may be reported as executed-as-authorized until an
+ * enforcement adapter confirms it, and Phase 1 has no enforcement.
+ */
+model ActionReceipt {
+  id                   String                @id @default(cuid())
+  intentId             String
+  intent               Intent                @relation(fields: [intentId], references: [id], onDelete: Cascade)
+  decisionId           String
+  decision             AuthorizationDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+  actorId              String
+  policyVersion        String
+  trustSnapshotId      String? // Phase 2
+  evidenceSnapshotHash String
+  decisionPayloadHash  String
+  executionStatus      String                @default("NOT_EXECUTED") // NOT_EXECUTED | EXECUTED | FAILED
+  executionTxHash      String?
+  createdAt            DateTime              @default(now())
+
+  @@index([intentId])
+  @@index([actorId])
+}
+
 /**
  * Known-funder registry — Xander V2 spec section 12.3, built in V2 Phase 0.
  *

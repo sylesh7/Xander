@@ -17,6 +17,7 @@ import { env } from './config/env.js'
 import { logger } from './lib/logger.js'
 import { getProvenanceHealth } from './provenance/health.js'
 import { apiRouter } from './claim/routes.js'
+import { v2Router } from './v2/routes.js'
 import { errorHandler } from './claim/middleware.js'
 import { startInvalidationWorker } from './cache/invalidation-worker.js'
 
@@ -41,6 +42,12 @@ app.get('/health', (_req, res) => {
 // The Phase 22 claim gate. Auth, rate limiting and zod validation are applied
 // inside the router so no route can be added later that quietly skips them.
 app.use(apiRouter)
+
+// The V2 Trust Runtime surface (spec section 24), mounted ALONGSIDE the claim
+// gate rather than in front of it. Section 1.1 keeps the V1 routes as a
+// compatibility surface: every existing client keeps working unchanged, and
+// nothing under /v2 writes a V1 table.
+app.use(v2Router)
 
 // Must be last: Express selects error middleware by arity and by position.
 app.use(errorHandler)

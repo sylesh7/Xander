@@ -222,6 +222,30 @@ model Investigation {
   @@index([clusterId])
 }
 
+// Added 2026-09-12 (Xander V2 Phase 1, spec sections 5.1-5.10), migration
+// `add_actor_intent_foundation`. PURELY ADDITIVE — five new models, no existing
+// model, column, index or constraint changed, and no V1 code path reads or
+// writes any of them.
+//
+// The reframing: V1 is `wallet -> score -> World -> claim`. V2 is
+// `actor -> intent -> evidence -> trust -> policy -> capability`. These five
+// models are the first two nouns. `/v2/*` is a parallel API surface; the Claim
+// Gate keeps working exactly as before.
+//
+// NOT ADDED ON PURPOSE: the V2 spec's section 5.3 `Wallet` (with chainId and
+// actorId). This repo's `Wallet` already exists, is keyed on address with no
+// chainId, and the clustering and evidence paths run on it — rewriting it is
+// exactly what "V2 is additive" forbids. The actor-to-wallet edge therefore
+// lives only in `ActorIdentity`, so there is one authoritative link rather than
+// two that can disagree.
+//
+// The full definitions live in prisma/schema.prisma (models Actor,
+// ActorIdentity, Intent, AuthorizationDecision, ActionReceipt) with their
+// rationale in comments; they are not duplicated here to avoid the two files
+// drifting apart. Indexes added: ActorIdentity(kind, externalId) UNIQUE,
+// Intent(actorId, status, expiresAt), Intent(idempotencyKey) UNIQUE,
+// AuthorizationDecision(intentId), ActionReceipt(intentId), ActionReceipt(actorId).
+
 // Added 2026-09-12 by SUGANTHAN (Xander V2 Phase 0, spec section 12.3),
 // migration `add_known_funder_address`. PURELY ADDITIVE — no existing model
 // changed, and nothing on Sylesh's track reads or writes it.

@@ -151,6 +151,16 @@ const envSchema = z.object({
   /** How long the known-funder table is cached in-process. Mirrors the deployment registry. */
   KNOWN_FUNDER_CACHE_TTL_SECONDS: num(300),
 
+  // --- V2 Phase 1: Actor + Intent ------------------------------------------
+  /**
+   * How long an Intent stays valid when the caller does not set `expiresAt`.
+   *
+   * Intents expire by default rather than living forever because an
+   * authorization is a statement about evidence at a moment in time. Section
+   * 7.3 makes the same argument for capabilities. Default 15 minutes.
+   */
+  INTENT_DEFAULT_TTL_SECONDS: num(900),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them
