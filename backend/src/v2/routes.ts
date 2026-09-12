@@ -20,6 +20,7 @@ import { ActorError, createActor, getActor } from '../actor/actor-service.js'
 import { ACTION_TYPES } from '../intent/intent-types.js'
 import { createIntent, getIntent, IntentError } from '../intent/intent-service.js'
 import { buildTrustContext } from '../trust/trust-context.js'
+import { getLiveLease, listCapabilities } from '../capabilities/capability-service.js'
 import {
   getLatestSnapshot,
   getTrustHistory,
@@ -181,6 +182,45 @@ v2Router.get(
       // deterministic evidence in charge, so a run of routine successes cannot
       // offset a live coordination signal.
       balance,
+    })
+  }),
+)
+
+/** The actor's capabilities — spec section 24. */
+v2Router.get(
+  '/v2/actors/:id/capabilities',
+  asyncHandler(async (req, res) => {
+    const actorId = String(req.params.id)
+    const actor = await getActor(actorId)
+    if (!actor) {
+      res.status(404).json({ error: 'not_found', message: 'No such actor.' })
+      return
+    }
+    const [capabilities, lease] = await Promise.all([
+      listCapabilities(actorId),
+      getLiveLease(actorId),
+    ])
+    res.json({
+      actorId,
+      assurance: lease
+        ? { hasLiveLease: true, level: lease.level, expiresAt: lease.expiresAt.toISOString() }
+        : { hasLiveLease: false, level: null, expiresAt: null },
+      capabilities: capabilities.map((c) => ({
+        id: c.id,
+        capabilityType: c.capabilityType,
+        actionType: c.actionType,
+        resourceScope: c.resourceScope,
+        chainScope: c.chainScope,
+        amountLimit: c.amountLimit,
+        frequencyLimit: c.frequencyLimit,
+        frequencyWindowSeconds: c.frequencyWindowSeconds,
+        allowedTargets: c.allowedTargets,
+        status: c.status,
+        live: c.live,
+        expiresAt: c.expiresAt?.toISOString() ?? null,
+        sourceDecisionId: c.sourceDecisionId,
+        createdAt: c.createdAt.toISOString(),
+      })),
     })
   }),
 )

@@ -17,16 +17,17 @@ import { env } from '../config/env.js'
 import { logger } from '../lib/logger.js'
 import { prisma } from '../lib/prisma.js'
 import { getRiskThroughCache } from '../cache/risk-cache.js'
-import { decide, type Decision, type PolicyDecision } from '../policy/policy-engine.js'
+import { decide, type PolicyDecision } from '../policy/policy-engine.js'
 import { resolveActorForWallet } from '../actor/actor-resolver.js'
 import { buildTrustContext } from '../trust/trust-context.js'
+import { policyEvaluator } from '../authorization/native-policy-evaluator.js'
+import { getLiveLease, grantCapability } from '../capabilities/capability-service.js'
 import { isEvmAddress, normalizeAddress } from '../actor/actor-types.js'
 import {
   REASON_CODES,
   type ActionType,
   type AuthorizationResult,
   type IntentParameters,
-  type ReasonCode,
 } from './intent-types.js'
 import {
   defaultExpiry,
@@ -96,31 +97,15 @@ export interface DecisionView {
 }
 
 /**
- * Maps V1's decision vocabulary onto V2's outcome set.
+ * V1's PENDING_REVIEW maps to V2 REVIEW, and that mapping is now enforced in
+ * `authorize` as a fail-closed branch rather than a lookup table.
  *
- * THE ONE MAPPING THAT MUST NOT BE GOT WRONG is PENDING_REVIEW -> REVIEW. Both
- * specs name treating PENDING_REVIEW as OK the single most damaging integration
- * bug available in this codebase: it turns "the evidence was stale or a Graph
- * query failed" into a confident authorization. It is a total mapping with no
- * default branch on purpose, so adding a V1 decision later fails to compile
- * rather than silently falling through to something permissive.
- *
- * LIMIT is unreachable from here — V1 has no notion of attenuation. Phase 3
- * introduces it in the capability engine, not by widening this map.
+ * It is a branch and not a table entry on purpose: since Phase 3 the V2 policy
+ * evaluator produces the result, and a table would have left PENDING_REVIEW as
+ * one input among many that a permissive rule could out-rank. Both specs call
+ * treating PENDING_REVIEW as OK the single most damaging integration bug
+ * available in this codebase, so it short-circuits before policy runs at all.
  */
-const RESULT_BY_V1_DECISION: Record<Decision, AuthorizationResult> = {
-  ALLOW: 'ALLOW',
-  CHALLENGE: 'CHALLENGE',
-  BLOCK: 'BLOCK',
-  PENDING_REVIEW: 'REVIEW',
-}
-
-const REASON_BY_V1_DECISION: Record<Decision, ReasonCode> = {
-  ALLOW: REASON_CODES.RISK_WITHIN_ALLOW_BAND,
-  CHALLENGE: REASON_CODES.RISK_REQUIRES_ASSURANCE,
-  BLOCK: REASON_CODES.RISK_IN_BLOCK_BAND,
-  PENDING_REVIEW: REASON_CODES.EVIDENCE_NOT_FRESH,
-}
 
 /**
  * Stable, human-readable lineage identifiers for the evidence behind a decision.
@@ -220,7 +205,13 @@ export async function createIntent(
     parametersHash,
     expiresAt,
     now,
+    resourceType: params.resourceType,
     resourceId: params.resourceId,
+    actionType: params.actionType,
+    amount: params.amount,
+    asset: params.asset,
+    chainId: params.chainId,
+    targetAddress: params.targetAddress,
   })
 
   await prisma.intent.update({ where: { id: intent.id }, data: { status: 'DECIDED' } })
@@ -247,9 +238,28 @@ async function authorize(args: {
   parametersHash: string
   expiresAt: Date
   now: Date
+  resourceType: string
   resourceId: string
-}): Promise<{ result: AuthorizationResult }> {
-  const { intentId, actor, parametersHash, expiresAt, now, resourceId } = args
+  actionType: string
+  amount: string | null
+  asset: string | null
+  chainId: number | null
+  targetAddress: string | null
+}): Promise<{ result: AuthorizationResult; decisionId: string }> {
+  const {
+    intentId,
+    actor,
+    parametersHash,
+    expiresAt,
+    now,
+    resourceType,
+    resourceId,
+    actionType,
+    amount,
+    asset,
+    chainId,
+    targetAddress,
+  } = args
 
   if (isExpired(expiresAt, now)) {
     return persistDecision({
@@ -310,49 +320,122 @@ async function authorize(args: {
     })
   }
 
-  // V1's real risk and policy path, read-only. `decide` branches on
-  // PENDING_REVIEW before it reads riskScore; that ordering is inherited here
-  // rather than reimplemented.
+  // V1's real risk engine still produces the evidence. `decide` is still called
+  // because it branches on PENDING_REVIEW before reading riskScore, and that
+  // ordering is the one thing both specs refuse to see reimplemented.
   const { risk } = await getRiskThroughCache(walletIdentity.externalId)
   const policy = await decide(risk)
 
-  // Phase 2: build and persist the trust context this decision rests on, so
-  // the decision cites an immutable snapshot rather than only a bare score.
-  // A trust failure must not silently become a permissive decision, so it
-  // degrades to "no snapshot" and the deterministic V1 path still governs.
+  // Phase 2: the trust context this decision rests on. A trust failure must
+  // never become a permissive decision, so a throw here leaves the band
+  // unknown and the fail-closed path below takes over.
   let trustSnapshotId: string | null = null
-  let trustBand: string | null = null
+  let trust: Awaited<ReturnType<typeof buildTrustContext>> | null = null
   try {
-    const trust = await buildTrustContext(actor.id, { campaignId: resourceId, risk })
+    trust = await buildTrustContext(actor.id, { campaignId: resourceId, risk })
     trustSnapshotId = trust.snapshotId
-    trustBand = trust.band
   } catch (err) {
     logger.warn({ actorId: actor.id, err }, 'trust context unavailable for this decision')
   }
 
-  return persistDecision({
+  // FAIL CLOSED (section 27.5). V1 holding the claim, or trust being
+  // unavailable, both mean we cannot authorise — and neither may be overridden
+  // by a permissive policy rule. Policy runs only once we have a real trust
+  // band to run it against.
+  if (policy.decision === 'PENDING_REVIEW' || trust === null) {
+    return persistDecision({
+      intentId,
+      actorId: actor.id,
+      result: 'REVIEW',
+      reasonCode: REASON_CODES.EVIDENCE_NOT_FRESH,
+      reasonSummary: policy.reason,
+      policyVersion: policy.policyVersion,
+      riskScore: policy.riskScore,
+      clusterId: policy.clusterId,
+      confidence: policy.confidence,
+      requiredAssurance: policy.requiredAssurance,
+      evidenceIds: evidenceLineage(policy),
+      parametersHash,
+      trustSnapshotId,
+    })
+  }
+
+  // Phase 3: trust becomes authoritative. The V2 policy evaluator decides,
+  // against the trust band rather than the raw V1 score, and can now return
+  // LIMIT — which V1 had no way to express.
+  const lease = await getLiveLease(actor.id)
+  const currentCapabilities = await prisma.capability.findMany({
+    where: { actorId: actor.id, actionType, status: 'ACTIVE' },
+    select: { id: true, actionType: true, amountLimit: true, expiresAt: true },
+  })
+
+  const outcome = await policyEvaluator.evaluate({
+    actor: { id: actor.id, actorType: actor.actorType, status: actor.status },
+    intent: {
+      id: intentId,
+      actionType,
+      resourceType,
+      resourceId,
+      amount,
+      asset,
+      chainId,
+      targetAddress,
+    },
+    trust: {
+      band: trust.band,
+      coordinationRisk: trust.vector.coordinationRisk.value,
+      behaviorIntegrity: trust.vector.behaviorIntegrity.value,
+      evidenceFreshness: trust.vector.evidenceFreshness.value,
+      snapshotId: trust.snapshotId,
+    },
+    assurance: {
+      hasLiveLease: lease !== null,
+      level: lease?.level ?? null,
+      expiresAt: lease?.expiresAt ?? null,
+    },
+    currentCapabilities,
+  })
+
+  const decision = await persistDecision({
     intentId,
     actorId: actor.id,
-    result: RESULT_BY_V1_DECISION[policy.decision],
-    reasonCode: REASON_BY_V1_DECISION[policy.decision],
-    reasonSummary:
-      trustBand === null ? policy.reason : `${policy.reason} Trust band: ${trustBand}.`,
-    policyVersion: policy.policyVersion,
+    result: outcome.result,
+    reasonCode: outcome.reasonCode,
+    reasonSummary: `${outcome.reasonSummary} Trust band: ${trust.band}.`,
+    policyVersion: outcome.policyVersion,
     riskScore: policy.riskScore,
     clusterId: policy.clusterId,
     confidence: policy.confidence,
-    requiredAssurance: policy.requiredAssurance,
+    requiredAssurance: outcome.requiredAssurance,
     evidenceIds: evidenceLineage(policy),
     parametersHash,
     trustSnapshotId,
+    policyId: outcome.policyId,
   })
+
+  // A capability is only minted for an outcome that actually authorises
+  // something. CHALLENGE, REVIEW and BLOCK grant nothing.
+  if ((outcome.result === 'ALLOW' || outcome.result === 'LIMIT') && outcome.limits) {
+    await grantCapability({
+      actorId: actor.id,
+      actionType,
+      resourceScope: `${resourceType}:${resourceId}`,
+      chainScope: chainId,
+      limits: outcome.limits,
+      sourceDecisionId: decision.decisionId,
+      assuranceLeaseId: lease?.id ?? null,
+      attenuated: outcome.attenuated,
+    })
+  }
+
+  return decision
 }
 
 async function persistDecision(args: {
   intentId: string
   actorId: string
   result: AuthorizationResult
-  reasonCode: ReasonCode
+  reasonCode: string
   reasonSummary: string
   policyVersion: string
   riskScore: number
@@ -362,7 +445,8 @@ async function persistDecision(args: {
   evidenceIds: string[]
   parametersHash: string
   trustSnapshotId?: string | null
-}): Promise<{ result: AuthorizationResult }> {
+  policyId?: string | null
+}): Promise<{ result: AuthorizationResult; decisionId: string }> {
   const decision = await prisma.authorizationDecision.create({
     data: {
       intentId: args.intentId,
@@ -376,6 +460,7 @@ async function persistDecision(args: {
       clusterId: args.clusterId,
       confidence: args.confidence,
       trustSnapshotId: args.trustSnapshotId ?? null,
+      policyId: args.policyId ?? null,
     },
   })
 
@@ -400,7 +485,7 @@ async function persistDecision(args: {
     },
   })
 
-  return { result: args.result }
+  return { result: args.result, decisionId: decision.id }
 }
 
 async function findByIdempotencyKey(key: string): Promise<IntentView | null> {

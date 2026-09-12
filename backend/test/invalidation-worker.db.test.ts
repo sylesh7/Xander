@@ -9,6 +9,7 @@
  *
  * Requires Postgres + Redis and a seeded database.
  */
+import { randomBytes } from 'node:crypto'
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 vi.stubEnv('RISK_CACHE_ENABLED', 'true')
@@ -16,10 +17,7 @@ vi.stubEnv('RISK_CACHE_ENABLED', 'true')
 // NO MOCKS. The worker calls the real `refreshWalletEvidence`, which is the
 // whole point of this seam — a stubbed refresh would prove the cache was
 // repopulated without proving the evidence behind it was ever fetched.
-const { Queue } = await import('bullmq')
-const { env } = await import('../src/config/env.js')
 const { prisma } = await import('../src/lib/prisma.js')
-const { RISK_INVALIDATION_QUEUE } = await import('../src/interfaces/evidence-risk-api.js')
 const { FIXTURE_CLEAN_WALLET } = await import('../src/interfaces/stub-fixtures.js')
 const { enqueueRiskInvalidation, closeInvalidationQueue } = await import(
   '../src/graph/substreams/invalidation-queue.js'
@@ -102,23 +100,28 @@ describe('Phase 24 — the real queue round trip', () => {
   it('a job published by the producer is consumed by the worker', async () => {
     if (!seeded) return
 
-    await writeCachedRisk(FIXTURE_CLEAN_WALLET, cached)
-
-    // The producer dedupes on jobId, so a leftover job with this id from an
-    // earlier run would make the enqueue below a silent no-op and the worker
-    // would never fire.
-    const inspect = new Queue(RISK_INVALIDATION_QUEUE, { connection: { url: env.REDIS_URL } })
-    await inspect.remove(FIXTURE_CLEAN_WALLET).catch(() => undefined)
-    await inspect.close()
+    // A wallet unique to this run. The jobId the producer derives IS the wallet
+    // address, and BullMQ dedupes on jobId while retaining failed jobs
+    // (removeOnFail: 1000) — so using a shared fixture wallet coupled this test
+    // to every other suite that touches it, and a retained job from anywhere
+    // turned the enqueue below into a silent no-op with no worker event ever
+    // firing. Latent all along; the suite growing past 30 files is what started
+    // landing it. A unique wallet makes the collision impossible.
+    const wallet = `0x${randomBytes(20).toString('hex')}`
+    await writeCachedRisk(wallet, cached)
 
     const worker = startInvalidationWorker()
     const completed = new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('no job completed within 15s')), 15_000)
-      worker.on('completed', () => {
+      const timer = setTimeout(() => reject(new Error('no job completed within 60s')), 60_000)
+      // Match on OUR job: the worker also drains jobs other files enqueued, and
+      // resolving on the first completion would race our cache assertion.
+      worker.on('completed', (job) => {
+        if (job?.id !== wallet) return
         clearTimeout(timer)
         resolve()
       })
-      worker.on('failed', (_job, err) => {
+      worker.on('failed', (job, err) => {
+        if (job?.id !== wallet) return
         clearTimeout(timer)
         reject(err)
       })
@@ -126,10 +129,10 @@ describe('Phase 24 — the real queue round trip', () => {
 
     // Suganthan's producer, imported from their module — not a hand-rolled
     // enqueue that could drift from the real one.
-    await enqueueRiskInvalidation(FIXTURE_CLEAN_WALLET)
+    await enqueueRiskInvalidation(wallet)
     await completed
 
-    const after = await readCachedRisk(FIXTURE_CLEAN_WALLET)
+    const after = await readCachedRisk(wallet)
     expect(after?.riskScore).not.toBe(0.99)
-  }, 20_000)
+  }, 75_000)
 })

@@ -23,6 +23,11 @@ import {
   recomputeClusterForCandidates,
 } from '../src/interfaces/evidence-risk-api.js'
 import { KNOWN_FUNDER_SEED_ROWS } from './seed-data/known-funders.js'
+import {
+  POLICY_NAME,
+  POLICY_RULE_SEEDS,
+  POLICY_VERSION,
+} from './seed-data/policy-rules.js'
 // --- SYLESH (Phases 13-25) ---------------------------------------------------
 import {
   FIXTURE_CAMPAIGN_ID,
@@ -198,6 +203,60 @@ async function seedKnownFunders(): Promise<void> {
   )
 }
 
+/**
+ * The V2 authorization policy — spec section 20, built in Phase 3.
+ *
+ * Rules are rows so adding one is an INSERT. Re-seeding replaces the ruleset
+ * for this version in a transaction: a partial swap would leave the engine
+ * evaluating half an old policy and half a new one.
+ */
+async function seedV2Policy(): Promise<void> {
+  const existing = await prisma.policy.findUnique({ where: { version: POLICY_VERSION } })
+
+  await prisma.$transaction(async (tx) => {
+    const policy = existing
+      ? await tx.policy.update({ where: { id: existing.id }, data: { active: true } })
+      : await tx.policy.create({
+          data: { name: POLICY_NAME, version: POLICY_VERSION, active: true },
+        })
+
+    // Exactly one active policy, the same rule V1's PolicyVersion follows.
+    await tx.policy.updateMany({
+      where: { id: { not: policy.id }, active: true },
+      data: { active: false },
+    })
+
+    await tx.policyRule.deleteMany({ where: { policyId: policy.id } })
+    for (const rule of POLICY_RULE_SEEDS) {
+      await tx.policyRule.create({
+        data: {
+          policyId: policy.id,
+          priority: rule.priority,
+          name: rule.name,
+          actionType: rule.actionType ?? null,
+          minAmount: rule.minAmount ?? null,
+          maxAmount: rule.maxAmount ?? null,
+          trustBands: rule.trustBands ?? [],
+          maxCoordinationRisk: rule.maxCoordinationRisk ?? null,
+          minBehaviorIntegrity: rule.minBehaviorIntegrity ?? null,
+          requiresLiveAssurance: rule.requiresLiveAssurance ?? null,
+          effect: rule.effect,
+          reasonCode: rule.reasonCode,
+          limitAmount: rule.limitAmount ?? null,
+          limitFrequency: rule.limitFrequency ?? null,
+          limitWindowSeconds: rule.limitWindowSeconds ?? null,
+          capabilityTtlSeconds: rule.capabilityTtlSeconds ?? null,
+        },
+      })
+    }
+  })
+
+  logger.info(
+    { version: POLICY_VERSION, rules: POLICY_RULE_SEEDS.length },
+    '[seed:v2] authorization policy seeded and activated',
+  )
+}
+
 async function seedSuganthan(): Promise<void> {
   for (const d of DEPLOYMENTS) {
     // Keyed on deploymentId so re-seeding is idempotent and an operator's
@@ -213,6 +272,7 @@ async function seedSuganthan(): Promise<void> {
 
   await seedPolicy()
   await seedKnownFunders()
+  await seedV2Policy()
   await seedFixtureScenarios()
 }
 

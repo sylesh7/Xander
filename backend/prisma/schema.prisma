@@ -249,10 +249,12 @@ model Actor {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  identities ActorIdentity[]
-  intents    Intent[]
-  snapshots  TrustSnapshot[]
-  signals    TrustSignal[]
+  identities   ActorIdentity[]
+  intents      Intent[]
+  snapshots    TrustSnapshot[]
+  signals      TrustSignal[]
+  capabilities Capability[]
+  leases       AssuranceLease[]
 
   @@index([actorType, status])
 }
@@ -406,6 +408,181 @@ model ActionReceipt {
 
   @@index([intentId])
   @@index([actorId])
+}
+
+// ===========================================================================
+// XANDER V2 — Phase 3: Capability + Policy (spec sections 5.8, 7, 20)
+// Migration `add_capability_policy`. Purely additive; V1 untouched.
+// ===========================================================================
+
+/**
+ * A versioned set of authorization rules — spec section 20.
+ *
+ * Rules are ROWS, not code. Section 0.2 rule 1 makes every weight and threshold
+ * a table row so adding one is an INSERT; authorization rules are the same
+ * class of thing, and a rule nobody can inspect without reading TypeScript is
+ * not an auditable policy. `AuthorizationDecision.policyId` points here, so a
+ * past decision can be replayed against the exact ruleset that produced it.
+ *
+ * Exactly one row is active at a time, enforced in a transaction — the same
+ * pattern V1's PolicyVersion uses.
+ */
+model Policy {
+  id          String       @id @default(cuid())
+  name        String
+  version     String       @unique
+  description String?
+  active      Boolean      @default(false)
+  createdAt   DateTime     @default(now())
+  rules       PolicyRule[]
+}
+
+/**
+ * One rule. First match by ascending priority wins.
+ *
+ * Deliberately a fixed condition schema rather than an expression DSL: a DSL
+ * needs a parser, a parser needs its own security review, and every condition
+ * this product actually has is a comparison. Every condition column is
+ * nullable, and null means "do not care" — so a rule constrains only what it
+ * names.
+ *
+ * `trustBands` is a string list rather than a relation because it is a small
+ * closed set matched by value, and a join per rule per evaluation would buy
+ * nothing.
+ *
+ * Amounts are strings in base units, never floats, and are compared as BigInt.
+ */
+model PolicyRule {
+  id       String @id @default(cuid())
+  policyId String
+  policy   Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
+  /** Ascending. First match wins, so ordering IS the policy. */
+  priority Int
+  name     String
+
+  // --- conditions. null = unconstrained -------------------------------------
+  actionType          String?
+  /** Inclusive lower bound, base units. */
+  minAmount           String?
+  /** Inclusive upper bound, base units. */
+  maxAmount           String?
+  /** Empty list = any band. */
+  trustBands          String[]
+  maxCoordinationRisk Float?
+  minBehaviorIntegrity Float?
+  /** When true the rule matches only if a live assurance lease exists. */
+  requiresLiveAssurance Boolean?
+
+  // --- effect ---------------------------------------------------------------
+  effect     String // ALLOW | LIMIT | CHALLENGE | REVIEW | BLOCK
+  reasonCode String
+  /** For LIMIT: the attenuated ceiling, base units. */
+  limitAmount        String?
+  /** For LIMIT: max invocations inside limitWindowSeconds. */
+  limitFrequency     Int?
+  limitWindowSeconds Int?
+  /** Lifetime of the capability this rule grants. Null = no expiry. */
+  capabilityTtlSeconds Int?
+
+  @@unique([policyId, priority])
+  @@index([policyId])
+}
+
+/**
+ * A scoped, bounded, expiring grant — spec sections 5.8 and 7.
+ *
+ * The core V2 object. A decision says yes; a capability says exactly what
+ * "yes" covers, and section 3.5 requires that to be scoped to the action and
+ * resource rather than to the actor globally.
+ *
+ * Limits are strings in base units for the usual reason. `expiresAt` is
+ * nullable but section 7.3 wants every high-value grant time-bound, so the
+ * seeded rules set a TTL on everything that moves value.
+ */
+model Capability {
+  id             String  @id @default(cuid())
+  actorId        String
+  actor          Actor   @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  capabilityType String // GRANT | ATTENUATED_GRANT
+  actionType     String
+  resourceScope  String
+  chainScope     Int?
+  /** Attenuated ceiling in base units. Null = no amount bound. */
+  amountLimit    String?
+  frequencyLimit Int?
+  frequencyWindowSeconds Int?
+  /** Lowercased addresses this capability may target. Empty = unrestricted. */
+  allowedTargets String[]
+  expiresAt      DateTime?
+  status         String   @default("ACTIVE") // ACTIVE | EXPIRED | REVOKED | SUSPENDED
+  sourceDecisionId String?
+  /** The assurance lease this grant depends on, if any. */
+  assuranceLeaseId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  usages CapabilityUsage[]
+
+  @@index([actorId, status, expiresAt])
+  @@index([actorId, actionType])
+}
+
+/**
+ * One recorded exercise of a capability.
+ *
+ * A frequency limit is unenforceable without a usage record — "500 requests per
+ * hour" needs something to count. Separate rows rather than a counter column so
+ * a window can be recomputed for any interval after the fact, and so two
+ * concurrent uses cannot lose an increment to a read-modify-write race.
+ */
+model CapabilityUsage {
+  id           String     @id @default(cuid())
+  capabilityId String
+  capability   Capability @relation(fields: [capabilityId], references: [id], onDelete: Cascade)
+  intentId     String?
+  amount       String?
+  createdAt    DateTime   @default(now())
+
+  @@index([capabilityId, createdAt])
+}
+
+/**
+ * Human assurance held as a rotating lease.
+ *
+ * World Selfie Check ESTABLISHES the lease; a Xander active-liveness challenge
+ * ROTATES it; expiry suspends the capabilities that depend on it. Modelled as a
+ * lease rather than a one-off verification event because a credential proves
+ * someone was verified at some point, not that anyone is present now — and a
+ * treasury transfer needs the second property. Section 14.1's capability lease
+ * workflow drives the same machinery, which is why this is a "lease" and not a
+ * "session".
+ *
+ * Phase 3 defines the model and reads it. Nothing establishes a lease until
+ * Phase 5, so a rule requiring live assurance correctly yields CHALLENGE today
+ * rather than silently passing.
+ *
+ * No biometric material is stored — section 3.7 and 28. `worldCredentialRef`
+ * is a reference to a verification this backend already performed, and
+ * `sessionBinding` is a rotating nonce.
+ */
+model AssuranceLease {
+  id                 String    @id @default(cuid())
+  actorId            String
+  actor              Actor     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  level              String // WORLD_ONLY | WORLD_PLUS_ACTIVE
+  /** VerificationChallenge id backing this lease. Never biometric data. */
+  worldCredentialRef String?
+  establishedAt      DateTime  @default(now())
+  /** Last successful rotation — the active-liveness proof. */
+  lastProvenAt       DateTime?
+  expiresAt          DateTime
+  status             String    @default("ACTIVE") // ACTIVE | EXPIRED | REVOKED
+  /** Rotating nonce binding proofs to this lease. */
+  sessionBinding     String
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([actorId, status, expiresAt])
 }
 
 /**

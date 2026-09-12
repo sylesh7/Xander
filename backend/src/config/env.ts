@@ -194,6 +194,21 @@ const envSchema = z.object({
   TRUST_DRIFT_TIMING_SHIFT_HOURS: num(6),
   TRUST_DRIFT_CLUSTER_EXPANSION_MULTIPLE: num(2),
 
+  // --- V2 Phase 3: Capability + Policy (spec sections 5.8, 7, 20) ----------
+  /** How long the active ruleset is cached in-process. */
+  POLICY_CACHE_TTL_SECONDS: num(300),
+  /**
+   * Assurance lease lifetimes per trust band, in seconds. Rotation cadence is a
+   * function of trust, not a constant — a verified established actor can hold
+   * assurance far longer than one we are unsure about. 0 means no lease may be
+   * issued at that band.
+   */
+  ASSURANCE_TTL_VERIFIED_LOW_SECONDS: num(86_400),
+  ASSURANCE_TTL_ESTABLISHED_LOW_SECONDS: num(43_200),
+  ASSURANCE_TTL_UNCERTAIN_SECONDS: num(3_600),
+  ASSURANCE_TTL_HIGH_RISK_SECONDS: num(900),
+  ASSURANCE_TTL_CRITICAL_SECONDS: num(0),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them

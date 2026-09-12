@@ -222,6 +222,21 @@ model Investigation {
   @@index([clusterId])
 }
 
+// Added 2026-09-12 (Xander V2 Phase 3, spec sections 5.8, 7, 20), migration
+// `add_capability_policy`. PURELY ADDITIVE — Policy, PolicyRule, Capability,
+// CapabilityUsage and AssuranceLease. No V1 path reads or writes any of them.
+//
+// Authorization rules are ROWS, first match by ascending priority. Adding a
+// rule is an INSERT, the same discipline rule 1 applies to protocols and
+// weights. A null trust dimension never satisfies a rule threshold, so an
+// unmeasurable actor cannot fall through to a permissive rule; an unmatched
+// request defaults to REVIEW, never ALLOW.
+//
+// Definitions live in prisma/schema.prisma. Indexes: Capability(actorId,
+// status, expiresAt), Capability(actorId, actionType), CapabilityUsage(
+// capabilityId, createdAt), AssuranceLease(actorId, status, expiresAt),
+// PolicyRule(policyId) and unique (policyId, priority).
+
 // Added 2026-09-12 (Xander V2 Phase 2, spec sections 5.6, 6 and 21), migration
 // `add_trust_context`. PURELY ADDITIVE — models TrustSnapshot and TrustSignal,
 // both append-only, neither read nor written by any V1 path.

@@ -61,6 +61,8 @@ The full schema lives in `Backend-Suganthan.md` Section 0.4 and in `db/prisma/sc
 
 - *2026-09-12, Xander V2 Phase 2 (spec sections 5.6, 6, 21)* — two new models: `TrustSnapshot` and `TrustSignal`, both append-only, indexed on `(actorId, createdAt)`. Purely additive; nothing existing changed and your claim flow is untouched. Every trust dimension column is NULLABLE and null means UNKNOWN, never zero — a 0 would be read as "measured, and clean" for a wallet nobody has evidence on. `/v2/intents` decisions now populate `AuthorizationDecision.trustSnapshotId`, so a decision cites an immutable snapshot; the V1-derived result itself is unchanged in this phase. Migration `add_trust_context`.
 
+- *2026-09-12, Xander V2 Phase 3 (spec sections 5.8, 7, 20)* — five new models: `Policy`, `PolicyRule`, `Capability`, `CapabilityUsage`, `AssuranceLease`. Purely additive; your claim flow is untouched and still uses `decide()`. The `/v2` path now decides via a rule-row policy engine instead of V1 banding, so it can return `LIMIT`. V1 `PENDING_REVIEW` still short-circuits to `REVIEW` before policy runs. Migration `add_capability_policy`.
+
 One field to know cold: `VerificationChallenge.nullifier` is `Decimal @db.Decimal(78, 0)` — World ID nullifiers are 256-bit ints returned as `0x`-hex strings; convert to decimal before storing, Postgres has no native 256-bit int type.
 
 ### 0.5 Repo layout — your folders

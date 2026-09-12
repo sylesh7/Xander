@@ -4,6 +4,25 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['test/**/*.test.ts', 'src/**/*.test.ts'],
+    /**
+     * Test FILES run one at a time. Tests INSIDE a file still run as written,
+     * so every deliberate concurrency test — the Claim upsert race, the actor
+     * resolver race, the idempotency-key race — is untouched and still proves
+     * what it did.
+     *
+     * Why: this suite has no in-memory fixtures. Every file shares one Postgres
+     * and one Redis, and running 30+ of them at once produced a steady drip of
+     * failures that had nothing to do with the code under test — one file
+     * deleting an actor another was mid-test on, a global row count moving
+     * because a parallel file inserted, a BullMQ round trip starved of the
+     * event loop, a shared rate limiter tripping at 30 req/min. Each was fixed
+     * individually and another appeared. They are one class of defect with one
+     * cause, and serialising files removes the cause instead of the symptoms.
+     *
+     * The cost is wall-clock: roughly 20s to 90s. That is a good trade for a
+     * suite whose entire job is to be believed.
+     */
+    fileParallelism: false,
     env: {
       NODE_ENV: 'test',
       DATABASE_URL: 'postgresql://user:pass@localhost:5433/xander',
