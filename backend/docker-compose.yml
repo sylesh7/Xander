@@ -64,6 +64,25 @@ services:
       retries: 20
       start_period: 40s
 
+  # The Temporal Web UI. Separate image — auto-setup does not bundle it.
+  # Browse running and completed workflows, their full event history, and the
+  # exact input/result payloads of every activity.
+  temporal-ui:
+    image: temporalio/ui:2.54.1
+    container_name: xander-temporal-ui
+    restart: unless-stopped
+    depends_on:
+      - temporal
+    environment:
+      # Talks to the server over the compose network, so this is the container
+      # port 7233, not the 7234 the host sees.
+      TEMPORAL_ADDRESS: temporal:7233
+      TEMPORAL_UI_PORT: 8080
+      TEMPORAL_DEFAULT_NAMESPACE: xander
+      TEMPORAL_CORS_ORIGINS: http://localhost:8233
+    ports:
+      - '8233:8080'
+
 volumes:
   postgres-data:
   redis-data:
