@@ -308,6 +308,48 @@ const envSchema = z.object({
   ENS_PERMISSIONED_RESOLVER_IMPL: z.string().default('0x9eae5c2730a7dd16bdd1dee6421a1b91e3b0365e'),
   ENS_VERIFIABLE_FACTORY: z.string().default('0x10dc6333cdfe1fcef624c6e0a8221b91804cd7ef'),
 
+  // --- x402 agent commerce (V2 sections 4.6, 17; Phase 9) -------------------
+  // Protocol v2. The live facilitator advertises `x402Version: 2` and CAIP-2
+  // network ids, and v2 is NOT wire-compatible with v1 (different headers,
+  // different network naming), so these defaults describe v2 only.
+  X402_ENABLED: boolFromString.default('true'),
+  X402_FACILITATOR_URL: z.string().url().default('https://x402.org/facilitator'),
+  X402_FACILITATOR_TIMEOUT_MS: num(20_000),
+  X402_SCHEME: z.string().default('exact'),
+  /** CAIP-2. eip155:84532 is Base Sepolia — testnet, per the project rule. */
+  X402_NETWORK: z.string().default('eip155:84532'),
+  /** Base Sepolia USDC. Verified on-chain: name "USDC", version "2", 6 decimals. */
+  X402_ASSET: z.string().default('0x036CbD53842c5426634e7929541eC2318f3dCF7e'),
+  X402_ASSET_NAME: z.string().default('USDC'),
+  /** EIP-712 domain version of the payment token, not the protocol version. */
+  X402_ASSET_VERSION: z.string().default('2'),
+  X402_ASSET_DECIMALS: num(6),
+  /** Who gets paid. Empty disables the paid surface rather than paying nobody. */
+  X402_PAY_TO: optionalStr(),
+  /** Price of one protected request, in atomic units. 1000 = 0.001 USDC. */
+  X402_PRICE_ATOMIC: z.string().default('1000'),
+  /**
+   * How long a signed authorization stays valid.
+   *
+   * 300, not the specification example's 60. Between the client signing and the
+   * facilitator broadcasting, Xander rebuilds the payer's trust context and
+   * runs the policy engine — live work that can take tens of seconds. A 60
+   * second window expired mid-flight and the token reverted the transfer with
+   * `invalid_exact_evm_transaction_failed`, AFTER /verify had already returned
+   * isValid. Observed on Base Sepolia, not theorised.
+   */
+  X402_MAX_TIMEOUT_SECONDS: num(300),
+  /** Base URL used to build the `resource.url` a client signs over. */
+  X402_RESOURCE_BASE_URL: z.string().url().default('http://localhost:3000'),
+  /** RPC for the payment chain, used by the demo client to sign and read. */
+  X402_RPC_URL: z.string().url().default('https://sepolia.base.org'),
+  /**
+   * The DEMO CLIENT's key — it plays the paying agent in `check:x402`.
+   * Xander the resource server never signs a payment and never needs this;
+   * only the client script does, which is why it is optional.
+   */
+  X402_PAYER_PRIVATE_KEY: optionalStr(),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them

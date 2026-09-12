@@ -18,6 +18,7 @@ import { logger } from './lib/logger.js'
 import { getProvenanceHealth } from './provenance/health.js'
 import { apiRouter } from './claim/routes.js'
 import { v2Router } from './v2/routes.js'
+import { x402Router } from './x402/x402-routes.js'
 import { errorHandler } from './claim/middleware.js'
 import { startInvalidationWorker } from './cache/invalidation-worker.js'
 
@@ -38,6 +39,16 @@ app.get('/health', (_req, res) => {
       res.json({ ok: true, provenance: null })
     })
 })
+
+// Agent commerce (spec section 17). MOUNTED FIRST, and deliberately not behind
+// apiKeyAuth: in x402 the payment IS the authorization, and demanding a
+// pre-issued key would defeat the premise of an agent paying for a resource
+// with no prior relationship. The paying wallet's trust band gates it instead.
+//
+// It must precede apiRouter because that router calls `apiKeyAuth` with no path
+// prefix, so anything mounted after it inherits the key requirement. Ordering
+// here rather than changing the V1 router keeps the claim gate's auth untouched.
+app.use(x402Router)
 
 // The Phase 22 claim gate. Auth, rate limiting and zod validation are applied
 // inside the router so no route can be added later that quietly skips them.

@@ -64,6 +64,17 @@ export default defineConfig({
       // actually been answered with a 429. Raised for the test process only;
       // production keeps its real limit, and no test asserts this threshold.
       RATE_LIMIT_MAX_REQUESTS: '100000',
+
+      // x402 (Phase 9). This file deliberately does NOT read .env, so without
+      // an explicit pay-to address `x402Availability()` reports the surface as
+      // disabled and every Phase 9 test guards itself into a silent no-op —
+      // 16 green ticks asserting nothing. Found exactly that way.
+      //
+      // The address is a real receive-only address on Base Sepolia; no test in
+      // the suite settles a payment, so nothing is ever sent to it. Live
+      // settlement lives in `npm run check:x402`.
+      X402_ENABLED: 'true',
+      X402_PAY_TO: '0x6475a1E1360D6D9DB583B16D83c7dF6745FFb959',
     },
   },
 })

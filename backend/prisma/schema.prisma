@@ -21,56 +21,55 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-
 model DeploymentRegistryEntry {
-  id            String   @id @default(cuid())
-  protocol      String
-  chain         String
-  schemaFamily  String   // "lending-cdp" | "dex-amm" | "yield-aggregator" | ...
-  deploymentId  String   // the Qm... id from Graph Explorer
-  enabled       Boolean  @default(true)
-  createdAt     DateTime @default(now())
+  id           String   @id @default(cuid())
+  protocol     String
+  chain        String
+  schemaFamily String // "lending-cdp" | "dex-amm" | "yield-aggregator" | ...
+  deploymentId String // the Qm... id from Graph Explorer
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
 }
 
 model PolicyVersion {
   id          String   @id @default(cuid())
-  version     String   @unique   // e.g. "1.0", "1.1" — bump manually, never overwrite
-  weights     Json               // snapshot of RiskWeight rows at activation time
-  thresholds  Json               // snapshot of RiskThreshold rows at activation time
+  version     String   @unique // e.g. "1.0", "1.1" — bump manually, never overwrite
+  weights     Json // snapshot of RiskWeight rows at activation time
+  thresholds  Json // snapshot of RiskThreshold rows at activation time
   activatedAt DateTime @default(now())
   active      Boolean  @default(false) // exactly one row true at a time — enforce with a transaction, not a unique constraint (Postgres has no partial-unique-on-boolean without a filtered index; add one if you want DB-level enforcement: `@@unique([active])` won't work for "at most one true" — use a partial index in a raw migration if you want belt-and-suspenders)
 }
 
 model RiskWeight {
-  id        String  @id @default(cuid())
-  feature   String  @unique  // "FUNDING_CORRELATION", "TIMING_CORRELATION", ...
+  id        String   @id @default(cuid())
+  feature   String   @unique // "FUNDING_CORRELATION", "TIMING_CORRELATION", ...
   weight    Float
   updatedAt DateTime @updatedAt
 }
 
 model RiskThreshold {
-  id        String  @id @default(cuid())
-  band      String  @unique  // "ALLOW" | "CHALLENGE" | "BLOCK"
+  id        String   @id @default(cuid())
+  band      String   @unique // "ALLOW" | "CHALLENGE" | "BLOCK"
   minScore  Float
   maxScore  Float
   updatedAt DateTime @updatedAt
 }
 
 model Wallet {
-  address         String   @id
-  firstSeenBlock  BigInt?
-  createdAt       DateTime @default(now())
-  cluster         Cluster? @relation(fields: [clusterId], references: [id])
-  clusterId       String?
+  address        String   @id
+  firstSeenBlock BigInt?
+  createdAt      DateTime @default(now())
+  cluster        Cluster? @relation(fields: [clusterId], references: [id])
+  clusterId      String?
 }
 
 model Cluster {
-  id          String   @id @default(cuid())
-  confidence  String   // "LOW" | "MEDIUM" | "HIGH"
-  score       Float
-  wallets     Wallet[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  confidence String // "LOW" | "MEDIUM" | "HIGH"
+  score      Float
+  wallets    Wallet[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model EvidenceEvent {
@@ -78,14 +77,14 @@ model EvidenceEvent {
   chain           String
   wallet          String
   counterparty    String?
-  eventType       String   // "transfer" | "deposit" | "withdraw" | "borrow" | "repay" | "swap" | ...
+  eventType       String // "transfer" | "deposit" | "withdraw" | "borrow" | "repay" | "swap" | ...
   protocol        String?
-  protocolType    String?  // schema family
-  amount          String?  // string, never float — these are on-chain amounts
+  protocolType    String? // schema family
+  amount          String? // string, never float — these are on-chain amounts
   timestamp       DateTime
   blockNumber     BigInt
   transactionHash String
-  sourceType      String   // "token-api" | "standardized-subgraph" | "substreams"
+  sourceType      String // "token-api" | "standardized-subgraph" | "substreams"
   sourceId        String
   deploymentId    String?
   createdAt       DateTime @default(now())
@@ -117,31 +116,31 @@ model RiskEvidence {
 }
 
 model Claim {
-  id              String   @id @default(cuid())
-  wallet          String
-  campaignId      String
-  riskDecision    String   // "ALLOW" | "CHALLENGE" | "BLOCK" | "PENDING_REVIEW"
-  clusterId       String?
-  policyVersion   String?  // the PolicyVersion.version active when this decision was made
-  createdAt       DateTime @default(now())
-  decidedAt       DateTime?
+  id            String    @id @default(cuid())
+  wallet        String
+  campaignId    String
+  riskDecision  String // "ALLOW" | "CHALLENGE" | "BLOCK" | "PENDING_REVIEW"
+  clusterId     String?
+  policyVersion String? // the PolicyVersion.version active when this decision was made
+  createdAt     DateTime  @default(now())
+  decidedAt     DateTime?
 
   @@unique([wallet, campaignId]) // idempotency — see Sylesh Phase 22
 }
 
 model VerificationChallenge {
-  id               String   @id @default(cuid())
-  claimId          String
-  wallet           String
+  id            String    @id @default(cuid())
+  claimId       String
+  wallet        String
   // World ID nullifiers are 256-bit ints, returned as 0x-hex. Convert to
   // decimal before storing — Postgres has no native 256-bit int type.
-  nullifier        Decimal? @db.Decimal(78, 0)
-  rpId             String?
-  status           String   // "ISSUED" | "PASSED" | "FAILED" | "EXPIRED"
-  worldActionId    String
-  signalHash       String
-  createdAt        DateTime @default(now())
-  resolvedAt       DateTime?
+  nullifier     Decimal?  @db.Decimal(78, 0)
+  rpId          String?
+  status        String // "ISSUED" | "PASSED" | "FAILED" | "EXPIRED"
+  worldActionId String
+  signalHash    String
+  createdAt     DateTime  @default(now())
+  resolvedAt    DateTime?
 
   @@unique([nullifier, worldActionId])
 }
@@ -149,11 +148,9 @@ model VerificationChallenge {
 /**
  * Subgraph MCP investigation — Backend-Sylesh.md Phase 15, served by
  * GET /investigations/:id (Phase 22).
- *
  * ADDITIVE schema change, 2026-09-08, Sylesh. Logged in Section 0.4 of BOTH
  * markdown specs. Nothing in Suganthan's track reads or writes this model, and
  * no existing model changed, so no query on that side can break.
- *
  * Why it exists: Phase 15 says to persist the agent's report as a RiskEvidence
  * row, and that row IS still written (source: "mcp-investigation") so the
  * investigation is anchored in the evidence table exactly as specified. But
@@ -162,25 +159,24 @@ model VerificationChallenge {
  * GET /investigations/:id to serve an actual result. Overloading
  * RiskEvidence.feature with prose would have made "which feature is this?"
  * unanswerable for every consumer of that table.
- *
  * `citations` holds the agent's REAL tool-call trace, not its prose. Section
  * 0.2 rule 5 — the AI investigates and explains, it never decides — is only
  * enforceable if what it actually queried is recorded separately from what it
  * claims to have found.
  */
 model Investigation {
-  id          String    @id @default(cuid())
-  clusterId   String
-  wallets     Json // string[] — the wallet set handed to the agent
-  status      String // "RUNNING" | "COMPLETE" | "PARTIAL" | "FAILED"
-  summary     String? // the agent's narrative
-  citations   Json // [{ tool, deployment, args }] from the real tool-call trace
-  toolCalls   Int       @default(0)
-  model       String?
+  id           String    @id @default(cuid())
+  clusterId    String
+  wallets      Json // string[] — the wallet set handed to the agent
+  status       String // "RUNNING" | "COMPLETE" | "PARTIAL" | "FAILED"
+  summary      String? // the agent's narrative
+  citations    Json // [{ tool, deployment, args }] from the real tool-call trace
+  toolCalls    Int       @default(0)
+  model        String?
   finishReason String?
-  error       String?
-  createdAt   DateTime  @default(now())
-  completedAt DateTime?
+  error        String?
+  createdAt    DateTime  @default(now())
+  completedAt  DateTime?
 
   @@index([clusterId])
 }
@@ -193,10 +189,10 @@ model EvidenceReceipt {
   decision          String
   riskScore         Float
   confidence        String
-  features          Json     // [{ name, value }]
-  sources           Json     // [{ type, deployment, block }]
+  features          Json // [{ name, value }]
+  sources           Json // [{ type, deployment, block }]
   policyVersion     String
-  requiredAssurance String?  // "SELFIE_CHECK" | null
+  requiredAssurance String? // "SELFIE_CHECK" | null
   worldChallengeId  String?
   createdAt         DateTime @default(now())
 }
@@ -232,11 +228,9 @@ model EvidenceReceipt {
 
 /**
  * The logical entity making or controlling an action.
- *
  * Invariant 3.4: wallet != human != agent. An Actor is not a person. It is
  * whatever is acting, and the evidence linking it to identities is held in
  * ActorIdentity rows with their own provenance and verification state.
- *
  * There is deliberately NO field asserting "this actor IS person X" — the spec
  * calls that out explicitly. `displayName` is an operator's label for a row in
  * a console, never an identity claim.
@@ -256,20 +250,19 @@ model Actor {
   capabilities Capability[]
   leases       AssuranceLease[]
   agents       Agent[]
+  x402Payments X402Payment[]
 
   @@index([actorType, status])
 }
 
 /**
  * Maps an actor to one external evidence source.
- *
  * `@@unique([kind, externalId])` is both the index section 26 requires and the
  * invariant that matters: one wallet address resolves to exactly one Actor. Two
  * Actors claiming the same wallet would make "who is acting?" unanswerable, and
  * the resolver races that would produce it are real — V1 hit the identical race
  * on Claim and fixed it with a unique constraint plus catch-and-reread, which
  * is the same pattern the actor resolver uses.
- *
  * `status` starts UNVERIFIED and stays there. Observing that an address exists
  * is not proof anyone controls it (invariant 3.3), so only a real assurance
  * flow — World in Phase 5 — may move it to VERIFIED.
@@ -293,15 +286,12 @@ model ActorIdentity {
 
 /**
  * A requested action, recorded BEFORE it is authorized.
- *
  * The point of persisting an intent rather than authorizing inline: section 3.5
  * scopes permission to the action, so there has to be a durable row naming what
  * was asked for, which decision answered it, and what receipt it produced.
  * Phase 4's Temporal workflows resume against this row.
- *
  * `amount` is a string, never a float — on-chain amounts exceed float precision
  * and this is the same rule EvidenceEvent.amount follows.
- *
  * `parametersHash` is a deterministic digest of the semantic fields, so a
  * decision can be tied to the exact parameters it was made against. Re-deciding
  * a mutated intent is then detectable rather than invisible.
@@ -333,17 +323,14 @@ model Intent {
 
 /**
  * The authorization answer for one intent, with its full lineage.
- *
  * Invariant 3.6: every security decision stores the evidence it rested on, the
  * policy version that judged it, and what it concluded. `evidenceIds` is that
  * lineage, not a convenience field.
- *
  * `result` carries the V2 outcome set including LIMIT and REVIEW. Phase 1 never
  * emits LIMIT — attenuation needs the capability engine that arrives in Phase 3
  * — and it maps V1's PENDING_REVIEW onto REVIEW. That mapping must never become
  * ALLOW: holding a claim when evidence is stale is the behaviour both specs
  * call the single most damaging bug available in this codebase to get wrong.
- *
  * trustSnapshotId / policyId / capabilityId / workflowId are plain nullable ids,
  * not relations, because Phases 2, 3 and 4 own those tables. They are written
  * now so the column does not have to be added under a live schema later.
@@ -379,15 +366,12 @@ model AuthorizationDecision {
 
 /**
  * V1's Evidence Receipt pattern, extended to any action (spec section 5.10).
- *
  * V1's `EvidenceReceipt` is untouched and still serves the claim flow. This is
  * the additive V2 equivalent, keyed on an intent rather than a claim.
- *
  * The two hashes are what make a receipt a receipt: they pin the evidence set
  * and the decision payload as they were at decision time, so the action can be
  * reconstructed later without re-querying The Graph or World, and any drift
  * between then and now is provable rather than arguable.
- *
  * `executionStatus` starts NOT_EXECUTED and Phase 1 never moves it. Section
  * 18.2 is explicit — nothing may be reported as executed-as-authorized until an
  * enforcement adapter confirms it, and Phase 1 has no enforcement.
@@ -405,16 +389,19 @@ model ActionReceipt {
   decisionPayloadHash  String
   /**
    * NOT_EXECUTED | EXECUTED_AS_AUTHORIZED | BLOCKED_UNENFORCEABLE | FAILED
-   *
    * Phase 8 / section 18.2: EXECUTED_AS_AUTHORIZED is written only when every
    * applicable enforcement boundary positively confirmed. An action that ran
    * without that proof is BLOCKED_UNENFORCEABLE, never EXECUTED.
    */
   executionStatus      String                @default("NOT_EXECUTED")
   executionTxHash      String?
-  /** Which boundaries were consulted. Phase 8. */
+  /**
+   * Which boundaries were consulted. Phase 8.
+   */
   enforcementAdapters  String[]              @default([])
-  /** What they collectively said, in one line. Phase 8. */
+  /**
+   * What they collectively said, in one line. Phase 8.
+   */
   enforcementReason    String?
   executedAt           DateTime?
   createdAt            DateTime              @default(now())
@@ -430,13 +417,11 @@ model ActionReceipt {
 
 /**
  * A versioned set of authorization rules — spec section 20.
- *
  * Rules are ROWS, not code. Section 0.2 rule 1 makes every weight and threshold
  * a table row so adding one is an INSERT; authorization rules are the same
  * class of thing, and a rule nobody can inspect without reading TypeScript is
  * not an auditable policy. `AuthorizationDecision.policyId` points here, so a
  * past decision can be replayed against the exact ruleset that produced it.
- *
  * Exactly one row is active at a time, enforced in a transaction — the same
  * pattern V1's PolicyVersion uses.
  */
@@ -452,49 +437,62 @@ model Policy {
 
 /**
  * One rule. First match by ascending priority wins.
- *
  * Deliberately a fixed condition schema rather than an expression DSL: a DSL
  * needs a parser, a parser needs its own security review, and every condition
  * this product actually has is a comparison. Every condition column is
  * nullable, and null means "do not care" — so a rule constrains only what it
  * names.
- *
  * `trustBands` is a string list rather than a relation because it is a small
  * closed set matched by value, and a join per rule per evaluation would buy
  * nothing.
- *
  * Amounts are strings in base units, never floats, and are compared as BigInt.
  */
 model PolicyRule {
   id       String @id @default(cuid())
   policyId String
   policy   Policy @relation(fields: [policyId], references: [id], onDelete: Cascade)
-  /** Ascending. First match wins, so ordering IS the policy. */
+  /**
+   * Ascending. First match wins, so ordering IS the policy.
+   */
   priority Int
   name     String
 
   // --- conditions. null = unconstrained -------------------------------------
-  actionType          String?
-  /** Inclusive lower bound, base units. */
-  minAmount           String?
-  /** Inclusive upper bound, base units. */
-  maxAmount           String?
-  /** Empty list = any band. */
-  trustBands          String[]
-  maxCoordinationRisk Float?
-  minBehaviorIntegrity Float?
-  /** When true the rule matches only if a live assurance lease exists. */
+  actionType            String?
+  /**
+   * Inclusive lower bound, base units.
+   */
+  minAmount             String?
+  /**
+   * Inclusive upper bound, base units.
+   */
+  maxAmount             String?
+  /**
+   * Empty list = any band.
+   */
+  trustBands            String[]
+  maxCoordinationRisk   Float?
+  minBehaviorIntegrity  Float?
+  /**
+   * When true the rule matches only if a live assurance lease exists.
+   */
   requiresLiveAssurance Boolean?
 
   // --- effect ---------------------------------------------------------------
-  effect     String // ALLOW | LIMIT | CHALLENGE | REVIEW | BLOCK
-  reasonCode String
-  /** For LIMIT: the attenuated ceiling, base units. */
-  limitAmount        String?
-  /** For LIMIT: max invocations inside limitWindowSeconds. */
-  limitFrequency     Int?
-  limitWindowSeconds Int?
-  /** Lifetime of the capability this rule grants. Null = no expiry. */
+  effect               String // ALLOW | LIMIT | CHALLENGE | REVIEW | BLOCK
+  reasonCode           String
+  /**
+   * For LIMIT: the attenuated ceiling, base units.
+   */
+  limitAmount          String?
+  /**
+   * For LIMIT: max invocations inside limitWindowSeconds.
+   */
+  limitFrequency       Int?
+  limitWindowSeconds   Int?
+  /**
+   * Lifetime of the capability this rule grants. Null = no expiry.
+   */
   capabilityTtlSeconds Int?
 
   @@unique([policyId, priority])
@@ -503,36 +501,40 @@ model PolicyRule {
 
 /**
  * A scoped, bounded, expiring grant — spec sections 5.8 and 7.
- *
  * The core V2 object. A decision says yes; a capability says exactly what
  * "yes" covers, and section 3.5 requires that to be scoped to the action and
  * resource rather than to the actor globally.
- *
  * Limits are strings in base units for the usual reason. `expiresAt` is
  * nullable but section 7.3 wants every high-value grant time-bound, so the
  * seeded rules set a TTL on everything that moves value.
  */
 model Capability {
-  id             String  @id @default(cuid())
-  actorId        String
-  actor          Actor   @relation(fields: [actorId], references: [id], onDelete: Cascade)
-  capabilityType String // GRANT | ATTENUATED_GRANT
-  actionType     String
-  resourceScope  String
-  chainScope     Int?
-  /** Attenuated ceiling in base units. Null = no amount bound. */
-  amountLimit    String?
-  frequencyLimit Int?
+  id                     String    @id @default(cuid())
+  actorId                String
+  actor                  Actor     @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  capabilityType         String // GRANT | ATTENUATED_GRANT
+  actionType             String
+  resourceScope          String
+  chainScope             Int?
+  /**
+   * Attenuated ceiling in base units. Null = no amount bound.
+   */
+  amountLimit            String?
+  frequencyLimit         Int?
   frequencyWindowSeconds Int?
-  /** Lowercased addresses this capability may target. Empty = unrestricted. */
-  allowedTargets String[]
-  expiresAt      DateTime?
-  status         String   @default("ACTIVE") // ACTIVE | EXPIRED | REVOKED | SUSPENDED
-  sourceDecisionId String?
-  /** The assurance lease this grant depends on, if any. */
-  assuranceLeaseId String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  /**
+   * Lowercased addresses this capability may target. Empty = unrestricted.
+   */
+  allowedTargets         String[]
+  expiresAt              DateTime?
+  status                 String    @default("ACTIVE") // ACTIVE | EXPIRED | REVOKED | SUSPENDED
+  sourceDecisionId       String?
+  /**
+   * The assurance lease this grant depends on, if any.
+   */
+  assuranceLeaseId       String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 
   usages CapabilityUsage[]
 
@@ -542,7 +544,6 @@ model Capability {
 
 /**
  * One recorded exercise of a capability.
- *
  * A frequency limit is unenforceable without a usage record — "500 requests per
  * hour" needs something to count. Separate rows rather than a counter column so
  * a window can be recomputed for any interval after the fact, and so two
@@ -561,7 +562,6 @@ model CapabilityUsage {
 
 /**
  * Human assurance held as a rotating lease.
- *
  * World Selfie Check ESTABLISHES the lease; a Xander active-liveness challenge
  * ROTATES it; expiry suspends the capabilities that depend on it. Modelled as a
  * lease rather than a one-off verification event because a credential proves
@@ -569,11 +569,9 @@ model CapabilityUsage {
  * treasury transfer needs the second property. Section 14.1's capability lease
  * workflow drives the same machinery, which is why this is a "lease" and not a
  * "session".
- *
  * Phase 3 defines the model and reads it. Nothing establishes a lease until
  * Phase 5, so a rule requiring live assurance correctly yields CHALLENGE today
  * rather than silently passing.
- *
  * No biometric material is stored — section 3.7 and 28. `worldCredentialRef`
  * is a reference to a verification this backend already performed, and
  * `sessionBinding` is a rotating nonce.
@@ -583,14 +581,20 @@ model AssuranceLease {
   actorId            String
   actor              Actor     @relation(fields: [actorId], references: [id], onDelete: Cascade)
   level              String // WORLD_ONLY | WORLD_PLUS_ACTIVE
-  /** VerificationChallenge id backing this lease. Never biometric data. */
+  /**
+   * VerificationChallenge id backing this lease. Never biometric data.
+   */
   worldCredentialRef String?
   establishedAt      DateTime  @default(now())
-  /** Last successful rotation — the active-liveness proof. */
+  /**
+   * Last successful rotation — the active-liveness proof.
+   */
   lastProvenAt       DateTime?
   expiresAt          DateTime
   status             String    @default("ACTIVE") // ACTIVE | EXPIRED | REVOKED
-  /** Rotating nonce binding proofs to this lease. */
+  /**
+   * Rotating nonce binding proofs to this lease.
+   */
   sessionBinding     String
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
@@ -605,32 +609,38 @@ model AssuranceLease {
 
 /**
  * A human-backed AI agent — spec section 5.4.
- *
  * An Agent is not an Actor; it HAS one. Invariant 3.4 keeps wallet, human and
  * agent distinct, so the agent's authority flows through its Actor's
  * capabilities rather than living on the agent row.
- *
  * `ensName` is what makes the human-backing claim public: the agent is a
  * subname of the operator's name, so `AGENT_BACKED_BY` is verifiable on-chain
  * instead of being a private assertion in this table.
  */
 model Agent {
-  id       String @id @default(cuid())
-  actorId  String
-  actor    Actor  @relation(fields: [actorId], references: [id], onDelete: Cascade)
-  name     String
-  /** DRAFT | VERIFYING | HUMAN_BACKED | ACTIVE | RESTRICTED | FROZEN | REVOKED */
-  status   String @default("DRAFT")
+  id      String @id @default(cuid())
+  actorId String
+  actor   Actor  @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  name    String
+  /**
+   * DRAFT | VERIFYING | HUMAN_BACKED | ACTIVE | RESTRICTED | FROZEN | REVOKED
+   */
+  status  String @default("DRAFT")
 
-  agentUri        String?
-  erc8004AgentId  String? // Phase 6
-  worldAgentId    String?
-  /** ENS subname, e.g. alpha.xander.eth. Phase 3.5 mints it. */
-  ensName         String? @unique
-  ensTokenId      String?
-  /** The World verification that established human backing. */
+  agentUri         String?
+  erc8004AgentId   String? // Phase 6
+  worldAgentId     String?
+  /**
+   * ENS subname, e.g. alpha.xander.eth. Phase 3.5 mints it.
+   */
+  ensName          String? @unique
+  ensTokenId       String?
+  /**
+   * The World verification that established human backing.
+   */
   worldChallengeId String?
-  /** The assurance lease this agent's authority hangs from. */
+  /**
+   * The assurance lease this agent's authority hangs from.
+   */
   assuranceLeaseId String?
 
   configurationJson Json?
@@ -645,40 +655,50 @@ model Agent {
 
 /**
  * One active-liveness challenge — spec section 10.1.
- *
  * NO BIOMETRIC MATERIAL IS STORED. Sections 3.7 and 28 forbid it, and nothing
  * here would allow reconstructing a face: a nonce, what was asked, whether it
  * was satisfied, and the derived finger counts that justified the verdict.
  * The landmark trace itself is verified and discarded.
- *
  * `nonce` is unique and `consumedAt` is set on first use, which together make a
  * captured trace worthless on a second submission — replay protection by the
  * same reasoning as V1's World nullifier.
  */
 model LivenessChallenge {
-  id       String  @id @default(cuid())
-  agentId  String?
-  agent    Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  actorId  String
+  id      String  @id @default(cuid())
+  agentId String?
+  agent   Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  actorId String
 
-  /** SHOW_N_FINGERS | ... */
-  challengeType String
-  /** The parameter, e.g. how many fingers. */
-  target        Int
-  nonce         String   @unique
-  /** Binds the proof to the session that requested it. */
+  /**
+   * SHOW_N_FINGERS | ...
+   */
+  challengeType  String
+  /**
+   * The parameter, e.g. how many fingers.
+   */
+  target         Int
+  nonce          String    @unique
+  /**
+   * Binds the proof to the session that requested it.
+   */
   sessionBinding String
-  expiresAt     DateTime
-  /** ISSUED | PASSED | FAILED | EXPIRED */
-  status        String   @default("ISSUED")
-  /** Set the moment a proof is accepted OR rejected — single use either way. */
-  consumedAt    DateTime?
-  failureReason String?
-  /** Derived counts only. Never imagery. */
-  signalJson    Json?
-  cvVersion     String?
-  createdAt     DateTime @default(now())
-  resolvedAt    DateTime?
+  expiresAt      DateTime
+  /**
+   * ISSUED | PASSED | FAILED | EXPIRED
+   */
+  status         String    @default("ISSUED")
+  /**
+   * Set the moment a proof is accepted OR rejected — single use either way.
+   */
+  consumedAt     DateTime?
+  failureReason  String?
+  /**
+   * Derived counts only. Never imagery.
+   */
+  signalJson     Json?
+  cvVersion      String?
+  createdAt      DateTime  @default(now())
+  resolvedAt     DateTime?
 
   @@index([actorId, status])
   @@index([agentId])
@@ -687,13 +707,11 @@ model LivenessChallenge {
 /**
  * The trust vector for one actor at one moment — V2 spec sections 5.6 and 6,
  * added in Phase 2, migration `add_trust_context`. Purely additive.
- *
  * APPEND-ONLY BY DESIGN. Section 21 asks for "a history of decisions, not
  * simply one mutable score", so a re-evaluation writes a NEW row rather than
  * updating the last one. That is what makes a past authorization auditable:
  * the snapshot it cited still says what it said at the time, even after the
  * actor's trust has moved on.
- *
  * EVERY DIMENSION IS NULLABLE, AND NULL MEANS UNKNOWN — never zero. Invariant
  * 3.2 and section 6.1: a cold-start actor's dimensions must not be mapped to
  * LOW_RISK. Storing 0 for "we could not measure this" would be read as
@@ -717,12 +735,18 @@ model TrustSnapshot {
   evidenceFreshness       Float?
   investigationConfidence Float?
 
-  overallBand String // VERIFIED_LOW | ESTABLISHED_LOW | UNCERTAIN | HIGH_RISK | CRITICAL | INSUFFICIENT_EVIDENCE
-  /** Per-dimension { value, state, basis } — the audit trail for the numbers above. */
+  overallBand    String // VERIFIED_LOW | ESTABLISHED_LOW | UNCERTAIN | HIGH_RISK | CRITICAL | INSUFFICIENT_EVIDENCE
+  /**
+   * Per-dimension { value, state, basis } — the audit trail for the numbers above.
+   */
   dimensionsJson Json
-  /** Drift signals observed when this snapshot was built. A signal, never a verdict. */
+  /**
+   * Drift signals observed when this snapshot was built. A signal, never a verdict.
+   */
   driftJson      Json?
-  /** Evidence-source provenance behind the snapshot. */
+  /**
+   * Evidence-source provenance behind the snapshot.
+   */
   evidenceIds    Json
 
   engineVersion String
@@ -734,26 +758,24 @@ model TrustSnapshot {
 
 /**
  * An append-only trust event — V2 spec sections 21.1 and 21.2.
- *
  * The counterpart to TrustSnapshot: a snapshot is trust as computed at a
  * moment, this is the ledger of things that happened to earn it. Section 21
  * wants trust to evolve from a history rather than a single mutable number, and
  * a computed vector alone cannot answer "why did this actor's trust change?".
- *
  * Never updated or deleted, including when a signal turns out to be wrong — a
  * retraction is another row, so the original observation survives.
  */
 model TrustSignal {
-  id        String   @id @default(cuid())
-  actorId   String
-  actor     Actor    @relation(fields: [actorId], references: [id], onDelete: Cascade)
-  kind      String // SUCCESSFUL_ACTION | POLICY_VIOLATION | BEHAVIOR_DRIFT | ...
-  positive  Boolean
-  weight    Float // 0..1 — how much this event should count
-  detail    String
-  source    String // what produced the signal, never blank
+  id           String   @id @default(cuid())
+  actorId      String
+  actor        Actor    @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  kind         String // SUCCESSFUL_ACTION | POLICY_VIOLATION | BEHAVIOR_DRIFT | ...
+  positive     Boolean
+  weight       Float // 0..1 — how much this event should count
+  detail       String
+  source       String // what produced the signal, never blank
   metadataJson Json?
-  createdAt DateTime @default(now())
+  createdAt    DateTime @default(now())
 
   @@index([actorId, createdAt])
   @@index([actorId, kind])
@@ -761,29 +783,24 @@ model TrustSignal {
 
 /**
  * Known-funder registry — Xander V2 spec section 12.3, built in V2 Phase 0.
- *
  * ADDITIVE schema change, 2026-09-12. Logged in Section 0.4 of BOTH markdown
  * specs. No existing model changed and nothing on either track reads or writes
  * it except FUNDING_CORRELATION's option loader, so no existing query can break.
- *
  * Why it exists: Readme.md promises "a known-funder exclusion list, from day
  * one" and calls it "the single most important lesson" from the Arbitrum
  * airdrop precedent — and it did not exist. Without it, one exchange hot wallet
  * funding thousands of unrelated people who all withdraw in the same window
  * after an airdrop announcement scores maximum FUNDING_CORRELATION, which is
  * precisely the false positive that made the Arbitrum heuristic notorious.
- *
  * `chain` is a string network slug ("mainnet", "base-sepolia"), NOT the numeric
  * `chainId` the V2 spec's field list names. It has to join against
  * EvidenceEvent.chain, which is a slug — carrying a numeric id here instead
  * would force a slug-to-id mapping table before a single lookup could resolve.
  * V2's own actor/wallet tables can carry a numeric chainId from Phase 1 on.
- *
  * `source` and `confidence` are not decoration. A funder label is an assertion
  * made by somebody, and a wrong label is a security hole in both directions —
  * it can excuse a real attacker's funder or fail to excuse a real exchange. The
  * row records who said so, so a bad label is auditable rather than anonymous.
- *
  * validFrom/validTo exist because labels expire: an exchange rotates a hot
  * wallet and the old address stops being operational. Lookups filter on the
  * window rather than deleting rows, so a decision made last month can still be
@@ -815,4 +832,67 @@ model SubstreamsCursor {
   updatedAt   DateTime @updatedAt
 
   @@unique([chain, moduleName])
+}
+
+// ===========================================================================
+// XANDER V2 — Phase 9: x402 agent commerce (spec sections 4.6, 17)
+// Migration `add_x402_payment`. Purely additive.
+// ===========================================================================
+
+/**
+ * One x402 payment attempt against a Xander-protected resource.
+ * Written at EVERY outcome, including refusals, because "who was turned away
+ * and why" is the record an operator needs when an agent complains — and a
+ * table that only holds successes cannot answer it.
+ * `nonce` is unique. EIP-3009 authorizations are single-use by design and the
+ * x402 specification names replay as its primary security concern; the database
+ * constraint is what makes that true even if two requests race, because a
+ * check-then-insert cannot (section 0.2: writes are idempotent).
+ */
+model X402Payment {
+  id        String  @id @default(cuid())
+  actorId   String
+  actor     Actor   @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  /**
+   * The intent this payment authorized, once one exists.
+   */
+  intentId  String?
+  receiptId String?
+
+  resource String
+  scheme   String
+  /**
+   * CAIP-2, e.g. eip155:84532.
+   */
+  network  String
+  asset    String
+  payTo    String
+  /**
+   * Atomic units, string — never a float.
+   */
+  amount   String
+
+  payer  String?
+  /**
+   * REQUIRED | DENIED | INVALID | VERIFIED | SETTLED | FAILED
+   */
+  status String
+
+  /**
+   * EIP-3009 nonce. Single-use: the unique index IS the replay defence.
+   */
+  nonce       String? @unique
+  transaction String?
+  errorReason String?
+  /**
+   * Which trust band priced this request, for audit.
+   */
+  trustBand   String?
+  reasonCode  String?
+
+  createdAt DateTime  @default(now())
+  settledAt DateTime?
+
+  @@index([actorId, createdAt])
+  @@index([status])
 }

@@ -31,7 +31,18 @@ export interface PolicyRuleSeed {
   capabilityTtlSeconds?: number | null
 }
 
-export const POLICY_VERSION = 'v2-1.0'
+/**
+ * Bump this whenever a rule changes — never edit a published version in place.
+ *
+ * `AuthorizationDecision.policyVersion` and `ActionReceipt.policyVersion` are
+ * LINEAGE: they claim which rule set judged a request. Rewriting v2-1.0's rules
+ * would make every receipt already citing it describe a policy that no longer
+ * exists, and section 3.6's "every decision stores the policy version that
+ * judged it" would become a lie.
+ *
+ * v2-1.1 adds the section 17 x402 commerce ladder (priorities 52-56).
+ */
+export const POLICY_VERSION = 'v2-1.1'
 export const POLICY_NAME = 'Xander V2 default authorization policy'
 
 /** USDC-style 6dp base units, so 100 USDC is 100_000_000. */
@@ -156,6 +167,92 @@ export const POLICY_RULE_SEEDS: readonly PolicyRuleSeed[] = [
     limitFrequency: 500,
     limitWindowSeconds: 3600,
     capabilityTtlSeconds: 86_400,
+  },
+
+  // --- 52-56: x402 agent commerce. Section 17's ladder, as ROWS. ------------
+  // The spec states it as:
+  //     new agent          -> 10 requests/day
+  //     human-backed agent -> 500 requests/hour
+  //     trusted agent      -> 5000 requests/hour
+  //     anomalous agent    -> 0
+  // It lives here rather than in the x402 code so that repricing agent commerce
+  // is an UPDATE, per section 0.2 rule 1 — and so an operator can read the
+  // whole commercial policy in one table.
+  //
+  // WHAT "NEW AGENT" MEANS HERE, and what it does not. The bottom rung is rule
+  // 56, UNCERTAIN: an agent we HAVE measured and found unremarkable. An actor
+  // with no fresh evidence at all never reaches this table — `createIntent`
+  // holds it for REVIEW at the section 27.5 fail-closed gate, before any rule
+  // is consulted.
+  //
+  // That is deliberate and this ladder must not override it. An earlier draft
+  // of this file carved out an INSUFFICIENT_EVIDENCE exception so the spec's
+  // "new agent -> 10 requests/day" line would be literally reachable for a
+  // brand-new wallet; it was removed. Prepayment bounds what an attacker
+  // spends, but it does not make an unmeasurable actor measurable, and
+  // invariant 3.2 outranks a convenience rung. In Xander an agent becomes
+  // "new" rather than "unknown" by being created with an identity and
+  // assurance, which gives it the evidence this table needs.
+  {
+    priority: 52,
+    name: 'An anomalous actor may not buy anything',
+    actionType: 'X402_PAYMENT',
+    trustBands: ['HIGH_RISK', 'CRITICAL'],
+    effect: 'BLOCK',
+    reasonCode: 'X402_ANOMALOUS_ACTOR',
+    // Stated explicitly even though the priority 10/20 hard stops already catch
+    // these bands. Section 17's ladder has four rungs and all four should be
+    // visible to whoever reads the policy, not three plus an inherited default.
+  },
+  {
+    priority: 53,
+    name: 'A trusted actor gets the full commerce allowance',
+    actionType: 'X402_PAYMENT',
+    trustBands: ['VERIFIED_LOW'],
+    effect: 'LIMIT',
+    reasonCode: 'X402_ALLOWANCE_TRUSTED',
+    limitFrequency: 5000,
+    limitWindowSeconds: 3600,
+    capabilityTtlSeconds: 3600,
+  },
+  {
+    priority: 54,
+    name: 'A human-backed actor gets a working commerce allowance',
+    actionType: 'X402_PAYMENT',
+    trustBands: ['ESTABLISHED_LOW'],
+    requiresLiveAssurance: true,
+    effect: 'LIMIT',
+    reasonCode: 'X402_ALLOWANCE_HUMAN_BACKED',
+    limitFrequency: 500,
+    limitWindowSeconds: 3600,
+    capabilityTtlSeconds: 3600,
+  },
+  {
+    priority: 55,
+    name: 'An established actor without live assurance gets the new-agent rate',
+    actionType: 'X402_PAYMENT',
+    trustBands: ['ESTABLISHED_LOW'],
+    effect: 'LIMIT',
+    reasonCode: 'X402_ALLOWANCE_NO_ASSURANCE',
+    limitFrequency: 10,
+    limitWindowSeconds: 86_400,
+    capabilityTtlSeconds: 86_400,
+    // Section 17 prices the 500/hour rung as "human-backed", so an established
+    // actor whose assurance lease has lapsed drops to the new-agent rate rather
+    // than keeping a rate it can no longer justify.
+  },
+  {
+    priority: 56,
+    name: 'An uncertain actor gets a tiny commerce allowance',
+    actionType: 'X402_PAYMENT',
+    trustBands: ['UNCERTAIN'],
+    effect: 'LIMIT',
+    reasonCode: 'X402_ALLOWANCE_NEW',
+    limitFrequency: 10,
+    limitWindowSeconds: 86_400,
+    capabilityTtlSeconds: 86_400,
+    // Small, not zero — same reasoning as rule 15, for an actor we HAVE
+    // measured and found ambiguous rather than one we could not measure at all.
   },
 
   // --- 60-69: claims. The V1 vertical, now one action among many. -----------
