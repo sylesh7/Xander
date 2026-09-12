@@ -978,3 +978,197 @@ model Incident {
   @@index([actorId])
   @@index([openedAt])
 }
+
+// ===========================================================================
+// XANDER V2 — Phase 11: Remote Authority (spec sections 19, 27.1, 27.2)
+// Migration `add_remote_authority`. Purely additive.
+// ===========================================================================
+
+/**
+ * A human authority — spec section 27.1.
+ * Deliberately NOT the API key. Section 27.1: "Do not reuse a static protocol
+ * API key as a mobile-user credential." The API key says "some backend is
+ * calling"; an operator says "this named person decided this", which is the
+ * only thing an audit trail can actually hold someone to.
+ */
+model Operator {
+  id          String @id @default(cuid())
+  /**
+   * Stable external handle — an email, an SSO subject. Never a secret.
+   */
+  externalId  String @unique
+  displayName String
+  /**
+   * ACTIVE | SUSPENDED
+   */
+  status      String @default("ACTIVE")
+
+  /**
+   * Argon2/scrypt-style hash of the enrolment secret. NEVER the secret.
+   * A leaked operator table must not yield a working credential.
+   */
+  secretHash String
+  secretSalt String
+
+  /**
+   * Which actors this operator may act on. Empty = every actor.
+   */
+  actorScope  String[] @default([])
+  /**
+   * Which commands this operator may issue. Empty = every command.
+   */
+  actionScope String[] @default([])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sessions OperatorSession[]
+  audit    OperatorAuditLog[]
+}
+
+/**
+ * One authenticated device session — spec section 19.2.
+ * The token is stored HASHED and never returned again after creation. Sessions
+ * are short-lived by design: a stolen phone must stop being an authority plane
+ * on its own, without anyone having to notice and revoke it.
+ * `deviceId` is the device-binding half. A token replayed from a different
+ * device is refused even while it is otherwise valid, so exfiltrating the token
+ * alone is not enough.
+ */
+model OperatorSession {
+  id         String   @id @default(cuid())
+  operatorId String
+  operator   Operator @relation(fields: [operatorId], references: [id], onDelete: Cascade)
+
+  /**
+   * SHA-256 of the bearer token. The token itself is never stored.
+   */
+  tokenHash String  @unique
+  /**
+   * Device binding — a client-generated stable id, checked on every call.
+   */
+  deviceId  String
+  /**
+   * Free-form, for the audit trail only.
+   */
+  userAgent String?
+
+  /**
+   * ACTIVE | EXPIRED | REVOKED
+   */
+  status     String    @default("ACTIVE")
+  expiresAt  DateTime
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime?
+
+  @@index([operatorId, status])
+  @@index([expiresAt])
+}
+
+/**
+ * Something waiting for a human — spec section 19.1's pending-action API.
+ * `bindingHash` is the "explicit action binding" section 19.2 requires: the
+ * decision request must hash to the action it claims to be answering, so a
+ * token captured while approving a $10 payment cannot be replayed to approve a
+ * $10,000 one.
+ */
+model PendingAction {
+  id String @id @default(cuid())
+
+  /**
+   * What kind of thing needs a decision: INTENT | INCIDENT | AGENT.
+   */
+  subjectType String
+  subjectId   String
+  actorId     String?
+  agentId     String?
+  incidentId  String?
+  intentId    String?
+
+  /**
+   * What is being asked. A short imperative an operator can act on.
+   */
+  summary  String
+  /**
+   * Commands that are legal answers here, e.g. ["APPROVE","DENY","LIMIT"].
+   */
+  allowed  String[] @default([])
+  severity String   @default("MEDIUM")
+
+  /**
+   * Hash of the immutable facts of this action. Checked on every decision.
+   */
+  bindingHash String
+
+  /**
+   * PENDING | DECIDED | EXPIRED | CANCELLED
+   */
+  status    String   @default("PENDING")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  /**
+   * Filled in when a human answers.
+   */
+  decidedAt         DateTime?
+  decidedBy         String?
+  decision          String?
+  decisionReason    String?
+  limitAmount       String?
+  /**
+   * Whether the durable workflow actually received the decision.
+   */
+  workflowSignalled Boolean   @default(false)
+
+  /**
+   * Whether a World step-up was demanded and satisfied. Section 19.2.
+   */
+  requiresStepUp Boolean @default(false)
+  stepUpProofId  String?
+
+  @@index([status, expiresAt])
+  @@index([actorId])
+}
+
+/**
+ * Every privileged operator action — spec section 19.2's audit logging.
+ * Append-only and written for REFUSALS as well as successes. A log that only
+ * records what worked cannot answer "who tried to freeze this agent and was
+ * turned away", which is the question that matters after an incident.
+ */
+model OperatorAuditLog {
+  id         String    @id @default(cuid())
+  operatorId String?
+  operator   Operator? @relation(fields: [operatorId], references: [id], onDelete: SetNull)
+
+  sessionId String?
+  deviceId  String?
+
+  /**
+   * The command attempted.
+   */
+  action  String
+  /**
+   * What it was aimed at.
+   */
+  subject String?
+  /**
+   * ALLOWED | DENIED
+   */
+  outcome String
+  /**
+   * Why, in one line. Always populated on a DENIED.
+   */
+  reason  String
+
+  /**
+   * Single-use nonce — the unique index IS the replay defence.
+   */
+  nonce String? @unique
+
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([operatorId, createdAt])
+  @@index([action, outcome])
+}

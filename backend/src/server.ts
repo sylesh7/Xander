@@ -19,6 +19,7 @@ import { getProvenanceHealth } from './provenance/health.js'
 import { apiRouter } from './claim/routes.js'
 import { v2Router } from './v2/routes.js'
 import { x402Router } from './x402/x402-routes.js'
+import { controlRouter } from './control/control-routes.js'
 import { errorHandler } from './claim/middleware.js'
 import { startInvalidationWorker } from './cache/invalidation-worker.js'
 
@@ -49,6 +50,12 @@ app.get('/health', (_req, res) => {
 // prefix, so anything mounted after it inherits the key requirement. Ordering
 // here rather than changing the V1 router keeps the claim gate's auth untouched.
 app.use(x402Router)
+
+// Remote Authority (spec section 19). Mounted BEFORE apiRouter for the same
+// reason as x402: that router calls apiKeyAuth with no path prefix. The control
+// plane has its own, stronger operator authentication — section 27.1 forbids
+// reusing the static protocol key as a mobile-user credential.
+app.use(controlRouter)
 
 // The Phase 22 claim gate. Auth, rate limiting and zod validation are applied
 // inside the router so no route can be added later that quietly skips them.

@@ -350,6 +350,29 @@ const envSchema = z.object({
    */
   X402_PAYER_PRIVATE_KEY: optionalStr(),
 
+  // --- Remote Authority (V2 section 19; Phase 11) ---------------------------
+  /**
+   * How long an operator session lives. Short on purpose: section 19.2 asks for
+   * short-lived tokens so a stolen phone stops being an authority plane on its
+   * own, without anyone having to notice and revoke it. Default 1 hour.
+   */
+  OPERATOR_SESSION_TTL_SECONDS: num(3600),
+  /**
+   * How long a pending action waits for a human before it expires.
+   *
+   * Expiry is a REFUSAL, not an approval: an action nobody answered was never
+   * authorised. Default 15 minutes.
+   */
+  PENDING_ACTION_TTL_SECONDS: num(900),
+  /**
+   * Demand a passed World verification for REVOKE and FREEZE — section 19.2's
+   * "optional World step-up for critical operations".
+   */
+  OPERATOR_STEP_UP_ENABLED: boolFromString.default('false'),
+  /** Requests per window on the control plane. Section 19.2 asks for a limit. */
+  CONTROL_RATE_LIMIT_MAX: num(60),
+  CONTROL_RATE_LIMIT_WINDOW_MS: num(60_000),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them
