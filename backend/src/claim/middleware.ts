@@ -10,7 +10,7 @@ import { timingSafeEqual } from 'node:crypto'
 import rateLimit from 'express-rate-limit'
 import type { NextFunction, Request, RequestHandler, Response } from 'express'
 import type { ZodSchema } from 'zod'
-import { env, requireBackendApiKey } from '../config/env.js'
+import { acceptedBackendApiKeys, env } from '../config/env.js'
 import { logger } from '../lib/logger.js'
 import { ClaimError } from './orchestrator.js'
 
@@ -37,9 +37,9 @@ function secretsMatch(provided: string, expected: string): boolean {
  * deployment silently ships unauthenticated.
  */
 export const apiKeyAuth: RequestHandler = (req, res, next) => {
-  let expected: string
+  let accepted: string[]
   try {
-    expected = requireBackendApiKey()
+    accepted = acceptedBackendApiKeys()
   } catch {
     res.status(503).json({
       error: 'server_misconfigured',
@@ -49,7 +49,14 @@ export const apiKeyAuth: RequestHandler = (req, res, next) => {
   }
 
   const provided = req.header('x-api-key')
-  if (!provided || !secretsMatch(provided, expected)) {
+  // Every candidate is compared, without an early exit, so the number of
+  // comparisons does not reveal WHICH key matched during a rotation window.
+  let matched = false
+  for (const candidate of accepted) {
+    if (provided && secretsMatch(provided, candidate)) matched = true
+  }
+
+  if (!matched) {
     res.status(401).json({ error: 'unauthorized', message: 'Missing or invalid X-API-Key header.' })
     return
   }

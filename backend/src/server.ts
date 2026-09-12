@@ -22,6 +22,8 @@ import { x402Router } from './x402/x402-routes.js'
 import { controlRouter } from './control/control-routes.js'
 import { errorHandler } from './claim/middleware.js'
 import { startInvalidationWorker } from './cache/invalidation-worker.js'
+import { checkReadiness } from './hardening/readiness.js'
+import { startTelemetry, stopTelemetry } from './hardening/telemetry.js'
 
 export const app = express()
 
@@ -38,6 +40,27 @@ app.get('/health', (_req, res) => {
     .catch((err: unknown) => {
       logger.warn({ err }, '/health: provenance data unavailable')
       res.json({ ok: true, provenance: null })
+    })
+})
+
+/**
+ * Readiness — Phase 12. DISTINCT FROM /health, and the distinction matters.
+ *
+ * `/health` answers "is this process alive?" and stays `ok: true` for a running
+ * server; a liveness probe that failed on a Postgres blip would restart every
+ * replica in a loop and turn a dependency outage into a total one. `/ready`
+ * answers "should I get traffic?" and is what an orchestrator drains on.
+ *
+ * Unauthenticated for the same reason /health is: a probe that needs a
+ * credential silently stops working the moment that credential rotates.
+ */
+app.get('/ready', (_req, res) => {
+  checkReadiness()
+    .then((report) => res.status(report.ready ? 200 : 503).json(report))
+    .catch((err: unknown) => {
+      logger.error({ err }, '/ready: the readiness check itself failed')
+      // Fail closed: a readiness check that cannot run is not a ready instance.
+      res.status(503).json({ ready: false, canAuthorize: false, summary: 'readiness check failed' })
     })
 })
 
@@ -79,7 +102,11 @@ app.use(errorHandler)
 // without ever listening.
 const entry = process.argv[1]
 if (entry && import.meta.url === pathToFileURL(entry).href) {
-  app.listen(env.PORT, () => {
+  // Telemetry first: auto-instrumentation must patch http/pg/ioredis before
+  // any of them is used, and it is never fatal if it cannot start.
+  void startTelemetry().then((t) => logger.info(t, 'telemetry'))
+
+  const server = app.listen(env.PORT, () => {
     logger.info({ port: env.PORT }, 'xander backend listening')
   })
 
@@ -87,4 +114,23 @@ if (entry && import.meta.url === pathToFileURL(entry).href) {
   // that opened a live BullMQ consumer would drain jobs from a developer's
   // queue and hold the event loop open after the suite finished.
   startInvalidationWorker()
+
+  /**
+   * Graceful shutdown — Phase 12, for rolling deploys and autoscaling.
+   *
+   * Stops accepting new connections and lets in-flight requests finish. Without
+   * this, every scale-down event severs requests mid-decision, and a client
+   * that retries a non-idempotent call after a severed connection is exactly
+   * how duplicate authorizations happen.
+   */
+  const shutdown = (signal: string) => {
+    logger.info({ signal }, 'shutting down')
+    server.close(() => {
+      void stopTelemetry().then(() => process.exit(0))
+    })
+    // A hung connection must not hold the deploy open forever.
+    setTimeout(() => process.exit(1), 15_000).unref()
+  }
+  process.on('SIGTERM', () => shutdown('SIGTERM'))
+  process.on('SIGINT', () => shutdown('SIGINT'))
 }

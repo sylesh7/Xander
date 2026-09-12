@@ -373,6 +373,40 @@ const envSchema = z.object({
   CONTROL_RATE_LIMIT_MAX: num(60),
   CONTROL_RATE_LIMIT_WINDOW_MS: num(60_000),
 
+  // --- Retention (V2 Phase 12, sections 28 and 33) --------------------------
+  /**
+   * How many TrustSnapshots to keep per actor, regardless of age.
+   *
+   * Per-actor rather than a global age cutoff: an actor evaluated a hundred
+   * times an hour and one evaluated twice a year both need recent history.
+   * The most recent snapshot is never deleted — an authorization rests on it.
+   */
+  RETENTION_TRUST_SNAPSHOTS_PER_ACTOR: num(20),
+  RETENTION_TRUST_SNAPSHOT_DAYS: num(90),
+  RETENTION_TRUST_SIGNAL_DAYS: num(180),
+  RETENTION_SESSION_DAYS: num(30),
+  RETENTION_PENDING_ACTION_DAYS: num(90),
+  /** Deliberately long. "Who froze this agent and why" is asked months later. */
+  RETENTION_AUDIT_LOG_DAYS: num(730),
+
+  // --- Secrets rotation (V2 Phase 12) ---------------------------------------
+  /**
+   * Additional API keys accepted alongside BACKEND_API_KEY, comma-separated.
+   *
+   * Rotation without downtime needs an overlap window where BOTH the old and
+   * the new key work: issue the new one here, move clients over, then promote
+   * it to BACKEND_API_KEY and clear this. Without an overlap, rotating a key
+   * means a synchronised flag-day across every client, which in practice means
+   * the key never gets rotated at all.
+   */
+  BACKEND_API_KEYS_PREVIOUS: z.string().default(''),
+
+  // --- Observability (V2 Phase 12) -----------------------------------------
+  OTEL_ENABLED: boolFromString.default('false'),
+  OTEL_SERVICE_NAME: z.string().default('xander-backend'),
+  /** OTLP/HTTP collector. Empty with OTEL_ENABLED exports to the console. */
+  OTEL_EXPORTER_OTLP_ENDPOINT: optionalStr(),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them
@@ -608,6 +642,21 @@ export function requireBackendApiKey(): string {
     )
   }
   return env.BACKEND_API_KEY
+}
+
+/**
+ * Every API key currently accepted — the primary plus any in rotation.
+ *
+ * Phase 12, secrets rotation. Empty entries are dropped so a trailing comma or
+ * a blank BACKEND_API_KEYS_PREVIOUS cannot introduce an empty-string key that
+ * would match a request sending no key at all.
+ */
+export function acceptedBackendApiKeys(): string[] {
+  const primary = requireBackendApiKey()
+  const previous = env.BACKEND_API_KEYS_PREVIOUS.split(',')
+    .map((k) => k.trim())
+    .filter((k) => k.length > 0)
+  return [...new Set([primary, ...previous])]
 }
 
 export const isProduction = env.NODE_ENV === 'production'

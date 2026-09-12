@@ -61,6 +61,10 @@ model Wallet {
   createdAt      DateTime @default(now())
   cluster        Cluster? @relation(fields: [clusterId], references: [id])
   clusterId      String?
+
+  // Phase 12. "Every wallet in this cluster" is asked on every clustered
+  // decision and had no index behind it.
+  @@index([clusterId])
 }
 
 model Cluster {
@@ -97,7 +101,10 @@ model EvidenceEvent {
   // `txid-logIndex` for Token API), so it disambiguates without inventing a
   // logIndex column.
   @@unique([transactionHash, eventType, wallet, sourceId])
-  @@index([wallet])
+  // Phase 12. Every trust rebuild and counter-evidence search is
+  // `wallet IN (...) ORDER BY timestamp`, which the bare [wallet] index makes
+  // the planner sort by hand on the hottest path in the product.
+  @@index([wallet, timestamp])
   @@index([blockNumber])
 }
 
@@ -974,9 +981,10 @@ model Incident {
 
   updatedAt DateTime @updatedAt
 
-  @@index([status, severity])
+  // Section 26 names this exact composite; a triage view filters by status and
+  // severity and orders by openedAt, which one index serves end to end.
+  @@index([status, severity, openedAt])
   @@index([actorId])
-  @@index([openedAt])
 }
 
 // ===========================================================================
