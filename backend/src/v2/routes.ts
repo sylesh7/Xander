@@ -23,6 +23,8 @@ import { buildTrustContext } from '../trust/trust-context.js'
 import { resolveActorForWallet } from '../actor/actor-resolver.js'
 import { AGENT_LABEL_PATTERN } from '../ens/ens-names.js'
 import { readAgentEnsState } from '../agents/agent-ens.js'
+import { readErc8004Snapshot, toAgentReputationValue } from '../agents/erc8004.js'
+import { prisma } from '../lib/prisma.js'
 import {
   AgentError,
   createAgentWithIdentity,
@@ -436,6 +438,56 @@ v2Router.post(
       agentId: agent.id,
       status: agent.status,
       ens: { revokedOnChain: ens.succeeded, skipReason: ens.skipReason, txHash: ens.txHash, detail: ens.detail },
+    })
+  }),
+)
+
+/**
+ * Links an agent to its ERC-8004 identity — spec section 16.1.
+ *
+ * Stores a REFERENCE, never a mirror. Section 16.1 is explicit: do not copy the
+ * registry's state into our rows. The id is checked against the live registry
+ * before it is stored, so a typo becomes a 404 now rather than a permanently
+ * unmeasurable trust dimension later.
+ */
+v2Router.post(
+  '/v2/agents/:id/erc8004',
+  validateBody(z.object({ agentId: z.string().regex(/^\d+$/, 'ERC-8004 agentId is a uint256.') })),
+  asyncHandler(async (req, res) => {
+    const body = req.body as { agentId: string }
+    const agent = await getAgent(String(req.params.id))
+    if (!agent) {
+      res.status(404).json({ error: 'not_found', message: 'No such agent.' })
+      return
+    }
+
+    const snapshot = await readErc8004Snapshot(BigInt(body.agentId))
+    if (!snapshot.identity?.exists) {
+      res.status(404).json({
+        error: 'not_found',
+        message: `ERC-8004 agent ${body.agentId} is not registered in the configured identity registry.`,
+      })
+      return
+    }
+
+    await prisma.agent.update({
+      where: { id: agent.id },
+      data: { erc8004AgentId: body.agentId, agentUri: snapshot.identity.agentUri ?? agent.agentUri },
+    })
+
+    const derived = toAgentReputationValue(snapshot)
+    res.json({
+      agentId: agent.id,
+      erc8004: {
+        agentId: snapshot.identity.agentId,
+        owner: snapshot.identity.owner,
+        agentUri: snapshot.identity.agentUri,
+        feedbackCount: snapshot.reputation?.count ?? 0,
+        validationCount: snapshot.validation?.count ?? 0,
+      },
+      // Reported as measured or explicitly unknown — never a default number.
+      agentReputation: derived.value,
+      basis: derived.basis,
     })
   }),
 )

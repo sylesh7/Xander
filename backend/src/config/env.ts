@@ -209,6 +209,31 @@ const envSchema = z.object({
   ASSURANCE_TTL_HIGH_RISK_SECONDS: num(900),
   ASSURANCE_TTL_CRITICAL_SECONDS: num(0),
 
+  // --- V2 Phase 6: ERC-8004 agent trust (spec section 16) ------------------
+  /**
+   * Reference-implementation registries on Sepolia, each verified on-chain on
+   * 2026-09-12: real bytecode, and ReputationRegistry.getIdentityRegistry()
+   * returns exactly the identity address below, which is what proves the three
+   * are one matched deployment.
+   *
+   * Config rather than constants — ERC-8004 is a draft and these will move.
+   */
+  ERC8004_ENABLED: boolFromString.default('true'),
+  ERC8004_IDENTITY_REGISTRY: z.string().default('0x7177a6867296406881E20d6647232314736Dd09A'),
+  ERC8004_REPUTATION_REGISTRY: z.string().default('0xB5048e3ef1DA4E04deB6f7d0423D06F63869e322'),
+  ERC8004_VALIDATION_REGISTRY: z.string().default('0x662b40A526cb4017d947e71eAF6753BF3eeE66d8'),
+  /** How long an external reputation read is reused before re-querying. */
+  ERC8004_CACHE_TTL_SECONDS: num(300),
+  /**
+   * Fixed-point scale for the reputation summary value.
+   *
+   * The deployed getSummary omits the `valueDecimals` the EIP documents, so the
+   * scale cannot be read from the summary itself. UNVERIFIED against real data:
+   * no agent on the Sepolia deployment carries feedback yet. Default 0 treats
+   * the value as a plain integer.
+   */
+  ERC8004_SUMMARY_VALUE_DECIMALS: num(0),
+
   // --- V2 Phase 5: agents + active liveness (spec sections 9, 10) ---------
   /** How long an issued liveness challenge stays answerable. */
   LIVENESS_CHALLENGE_TTL_SECONDS: num(120),

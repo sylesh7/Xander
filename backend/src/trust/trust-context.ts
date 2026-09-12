@@ -25,6 +25,7 @@ import { prisma } from '../lib/prisma.js'
 import { getRiskThroughCache } from '../cache/risk-cache.js'
 import type { ClusterRisk } from '../interfaces/evidence-risk-api.js'
 import { detectDrift, type BehaviorEvent, type DriftOptions } from './trust-drift.js'
+import { readErc8004Snapshot, toAgentReputationValue } from '../agents/erc8004.js'
 import {
   bootstrapVector,
   classifyFreshness,
@@ -38,6 +39,7 @@ import {
   dimension,
   unknown,
   TRUST_ENGINE_VERSION,
+  type TrustDimensionValue,
   type DriftResult,
   type TrustBand,
   type TrustVector,
@@ -106,6 +108,37 @@ export function historyStrength(
   return {
     value,
     basis: `${events.length} events over ${spanDays.toFixed(1)} days`,
+  }
+}
+
+/**
+ * The ERC-8004 dimension for an actor, or UNKNOWN.
+ *
+ * Deliberately fails soft: an unreachable registry leaves the dimension
+ * unmeasured rather than aborting the whole trust build. External reputation
+ * is one signal of seven, and losing the other six because a third-party
+ * contract was unreachable would be a worse outcome than not knowing this one.
+ */
+async function readAgentReputation(actorId: string): Promise<TrustDimensionValue> {
+  if (!env.ERC8004_ENABLED) {
+    return unknown('ERC-8004 lookups are disabled')
+  }
+
+  const agent = await prisma.agent.findFirst({
+    where: { actorId, erc8004AgentId: { not: null } },
+    orderBy: { createdAt: 'desc' },
+  })
+  if (!agent?.erc8004AgentId) {
+    return unknown('no ERC-8004 agent id linked to this actor')
+  }
+
+  try {
+    const snapshot = await readErc8004Snapshot(BigInt(agent.erc8004AgentId))
+    const { value, basis } = toAgentReputationValue(snapshot)
+    return value === null ? unknown(basis) : dimension(value, basis)
+  } catch (err) {
+    logger.warn({ actorId, err }, 'ERC-8004 read failed; agent reputation stays unknown')
+    return unknown('ERC-8004 registries were unreachable')
   }
 }
 
@@ -258,10 +291,13 @@ export async function buildTrustContext(
       : unknown('no completed investigation for this actor’s cluster')
   }
 
-  // --- agent reputation ------------------------------------------------------
-  // Honestly unknown until Phase 6 wires ERC-8004. A neutral default here would
-  // be indistinguishable from a measured mediocre reputation.
-  vector.agentReputation = unknown('ERC-8004 reputation not yet integrated (Phase 6)')
+  // --- agent reputation, from ERC-8004 (Phase 6) -----------------------------
+  //
+  // Only measurable for an actor that HAS an agent with a linked ERC-8004 id.
+  // A plain wallet has no agent reputation and never will, so it stays UNKNOWN
+  // rather than being scored — the dimension is genuinely inapplicable, and
+  // section 16.2 keeps these inputs advisory in any case.
+  vector.agentReputation = await readAgentReputation(actorId)
 
   const evidenceIds = [
     ...new Set(
