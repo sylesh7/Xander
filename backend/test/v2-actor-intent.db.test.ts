@@ -280,7 +280,11 @@ describe('V2 Phase 1 — receipts and lineage', () => {
     expect(receipt!.decisionPayloadHash).toMatch(/^[0-9a-f]{64}$/)
     expect(receipt!.intentId).toBe(body.intentId)
     expect(receipt!.actorId).toBe(body.actorId)
-  }, 30_000)
+    // 60s, not 30s: this drives a full trust build, a live Graph refresh and a
+    // policy evaluation, and TrustSnapshot is append-only by design — a shared
+    // fixture actor accumulates snapshots across runs, so the work grows.
+    // Retention is Phase 12's subject.
+  }, 60_000)
 
   it('never reports an action as executed — Phase 1 has no enforcement', async () => {
     if (!seeded) return

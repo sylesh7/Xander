@@ -209,6 +209,21 @@ const envSchema = z.object({
   ASSURANCE_TTL_HIGH_RISK_SECONDS: num(900),
   ASSURANCE_TTL_CRITICAL_SECONDS: num(0),
 
+  // --- V2 Phase 5: agents + active liveness (spec sections 9, 10) ---------
+  /** How long an issued liveness challenge stays answerable. */
+  LIVENESS_CHALLENGE_TTL_SECONDS: num(120),
+  /** Range the finger-count target is drawn from. */
+  LIVENESS_MIN_FINGERS: num(1),
+  LIVENESS_MAX_FINGERS: num(5),
+  /**
+   * Lease granted when World assurance alone is established, seconds.
+   * Shorter than the WORLD_PLUS_ACTIVE lease below: a credential proves someone
+   * was verified at some point, not that anyone is present now.
+   */
+  ASSURANCE_LEASE_WORLD_ONLY_SECONDS: num(3600),
+  /** Lease when a fresh active-liveness proof also landed. */
+  ASSURANCE_LEASE_WORLD_PLUS_ACTIVE_SECONDS: num(43_200),
+
   // --- V2 Phase 4: Temporal workflows (spec section 14) --------------------
   /** Off by default so the API and test suite run without a Temporal server. */
   TEMPORAL_ENABLED: boolFromString.default('true'),

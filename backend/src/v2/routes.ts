@@ -20,6 +20,22 @@ import { ActorError, createActor, getActor } from '../actor/actor-service.js'
 import { ACTION_TYPES } from '../intent/intent-types.js'
 import { createIntent, getIntent, IntentError } from '../intent/intent-service.js'
 import { buildTrustContext } from '../trust/trust-context.js'
+import { resolveActorForWallet } from '../actor/actor-resolver.js'
+import {
+  AgentError,
+  createAgent,
+  establishAssurance,
+  freezeAgent,
+  getAgent,
+  listAgents,
+  revokeAgent,
+  unfreezeAgent,
+} from '../agents/agent-service.js'
+import {
+  completeLivenessChallenge,
+  issueLivenessChallenge,
+  LivenessError,
+} from '../verification/liveness-service.js'
 import { getLiveLease, listCapabilities } from '../capabilities/capability-service.js'
 import {
   getLatestSnapshot,
@@ -237,6 +253,188 @@ v2Router.get(
   }),
 )
 
+
+// --- Phase 5: agents and active liveness (spec sections 9, 10, 11) ---------
+
+const createAgentSchema = z.object({
+  actorId: z.string().min(1).optional(),
+  wallet: evmAddress.optional(),
+  name: z.string().min(1).max(120),
+  agentUri: z.string().url().optional(),
+  configuration: z.record(z.unknown()).optional(),
+})
+
+const livenessStartSchema = z.object({
+  actorId: z.string().min(1),
+  agentId: z.string().min(1).optional(),
+  sessionBinding: z.string().min(8).max(200),
+})
+
+const pointSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  z: z.number().optional(),
+})
+
+const livenessCompleteSchema = z.object({
+  challengeId: z.string().min(1),
+  nonce: z.string().min(1),
+  sessionBinding: z.string().min(8).max(200),
+  cvVersion: z.string().max(64).optional(),
+  // Landmarks, never imagery. Section 28 — the backend must not receive
+  // anything from which a face could be reconstructed.
+  frames: z
+    .array(z.object({ tMs: z.number(), landmarks: z.array(pointSchema).length(21) }))
+    .min(1)
+    .max(600),
+})
+
+const assuranceSchema = z.object({
+  worldChallengeId: z.string().min(1),
+  livenessChallengeId: z.string().min(1).optional(),
+})
+
+const reasonSchema = z.object({ reason: z.string().min(1).max(500) })
+
+v2Router.post(
+  '/v2/agents',
+  validateBody(createAgentSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof createAgentSchema>
+    if (Boolean(body.actorId) === Boolean(body.wallet)) {
+      res.status(400).json({
+        error: 'invalid_request',
+        message: 'Provide exactly one of actorId or wallet.',
+      })
+      return
+    }
+
+    const actorId = body.actorId ?? (await resolveActorForWallet(body.wallet!)).id
+    const agent = await createAgent({
+      actorId,
+      name: body.name,
+      ...(body.agentUri ? { agentUri: body.agentUri } : {}),
+      ...(body.configuration ? { configuration: body.configuration } : {}),
+    })
+
+    // Section 11.2's response shape: what still has to happen before this
+    // agent can act.
+    res.status(201).json({
+      agentId: agent.id,
+      actorId: agent.actorId,
+      name: agent.name,
+      status: agent.status,
+      verification: { world: 'REQUIRED', activeLiveness: 'OPTIONAL' },
+    })
+  }),
+)
+
+v2Router.get(
+  '/v2/agents',
+  asyncHandler(async (req, res) => {
+    const actorId = typeof req.query.actorId === 'string' ? req.query.actorId : undefined
+    res.json({ agents: await listAgents(actorId) })
+  }),
+)
+
+v2Router.get(
+  '/v2/agents/:id',
+  asyncHandler(async (req, res) => {
+    const agent = await getAgent(String(req.params.id))
+    if (!agent) {
+      res.status(404).json({ error: 'not_found', message: 'No such agent.' })
+      return
+    }
+    res.json(agent)
+  }),
+)
+
+/** Establishes the assurance lease and mints the initial capability envelope. */
+v2Router.post(
+  '/v2/agents/:id/verify',
+  validateBody(assuranceSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof assuranceSchema>
+    const result = await establishAssurance({
+      agentId: String(req.params.id),
+      worldChallengeId: body.worldChallengeId,
+      livenessChallengeId: body.livenessChallengeId ?? null,
+    })
+    res.json({
+      agentId: result.agent.id,
+      status: result.agent.status,
+      assurance: {
+        leaseId: result.leaseId,
+        level: result.level,
+        expiresAt: result.expiresAt.toISOString(),
+      },
+      capabilityIds: result.capabilityIds,
+    })
+  }),
+)
+
+v2Router.post(
+  '/v2/agents/:id/freeze',
+  validateBody(reasonSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof reasonSchema>
+    const agent = await freezeAgent(String(req.params.id), body.reason)
+    res.json({ agentId: agent.id, status: agent.status })
+  }),
+)
+
+v2Router.post(
+  '/v2/agents/:id/unfreeze',
+  validateBody(reasonSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof reasonSchema>
+    const agent = await unfreezeAgent(String(req.params.id), body.reason)
+    res.json({ agentId: agent.id, status: agent.status })
+  }),
+)
+
+v2Router.post(
+  '/v2/agents/:id/revoke',
+  validateBody(reasonSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof reasonSchema>
+    const agent = await revokeAgent(String(req.params.id), body.reason)
+    res.json({ agentId: agent.id, status: agent.status })
+  }),
+)
+
+v2Router.post(
+  '/v2/verification/liveness/start',
+  validateBody(livenessStartSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof livenessStartSchema>
+    const challenge = await issueLivenessChallenge({
+      actorId: body.actorId,
+      agentId: body.agentId ?? null,
+      sessionBinding: body.sessionBinding,
+    })
+    res.status(201).json(challenge)
+  }),
+)
+
+v2Router.post(
+  '/v2/verification/liveness/complete',
+  validateBody(livenessCompleteSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof livenessCompleteSchema>
+    const result = await completeLivenessChallenge({
+      challengeId: body.challengeId,
+      nonce: body.nonce,
+      sessionBinding: body.sessionBinding,
+      frames: body.frames,
+      ...(body.cvVersion ? { cvVersion: body.cvVersion } : {}),
+    })
+    // 200 either way: a rejected proof is a valid answer to a valid request,
+    // and a 4xx would make a legitimate failed attempt look like a client bug.
+    res.json(result)
+  }),
+)
+
 /**
  * V2's own error middleware, scoped to this router.
  *
@@ -254,7 +452,7 @@ v2Router.use((err: unknown, _req: Request, res: Response, next: NextFunction) =>
     next(err)
     return
   }
-  if (err instanceof ActorError || err instanceof IntentError) {
+  if (err instanceof ActorError || err instanceof IntentError || err instanceof AgentError || err instanceof LivenessError) {
     res.status(err.status).json({ error: 'v2_error', message: err.message })
     return
   }

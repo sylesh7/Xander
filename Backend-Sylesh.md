@@ -63,6 +63,8 @@ The full schema lives in `Backend-Suganthan.md` Section 0.4 and in `db/prisma/sc
 
 - *2026-09-12, Xander V2 Phase 3 (spec sections 5.8, 7, 20)* — five new models: `Policy`, `PolicyRule`, `Capability`, `CapabilityUsage`, `AssuranceLease`. Purely additive; your claim flow is untouched and still uses `decide()`. The `/v2` path now decides via a rule-row policy engine instead of V1 banding, so it can return `LIMIT`. V1 `PENDING_REVIEW` still short-circuits to `REVIEW` before policy runs. Migration `add_capability_policy`.
 
+- *2026-09-12, Xander V2 Phase 5 (spec sections 5.4, 9, 10)* — two new models: `Agent` and `LivenessChallenge`. Purely additive; your claim flow is untouched. `LivenessChallenge` stores NO biometric material — a nonce, the target, the verdict and derived integer counts only (sections 3.7, 28). Agent assurance reuses your existing `VerificationChallenge`: `establishAssurance` re-reads it and requires `status = PASSED`, so a World verification your track produced is what makes an agent human-backed. Migration `add_agent_liveness`.
+
 One field to know cold: `VerificationChallenge.nullifier` is `Decimal @db.Decimal(78, 0)` — World ID nullifiers are 256-bit ints returned as `0x`-hex strings; convert to decimal before storing, Postgres has no native 256-bit int type.
 
 ### 0.5 Repo layout — your folders

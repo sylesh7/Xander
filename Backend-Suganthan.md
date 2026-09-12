@@ -222,6 +222,20 @@ model Investigation {
   @@index([clusterId])
 }
 
+// Added 2026-09-12 (Xander V2 Phase 5, spec sections 5.4, 9, 10), migration
+// `add_agent_liveness`. PURELY ADDITIVE — models Agent and LivenessChallenge,
+// neither read nor written by any V1 path.
+//
+// An Agent is not an Actor; it HAS one, so its authority flows through that
+// actor's capabilities (invariant 3.4 keeps wallet, human and agent distinct).
+// LivenessChallenge stores no biometric material: a nonce, what was asked,
+// whether it was satisfied, and the derived finger counts that justify the
+// verdict. The landmark trace is verified and discarded.
+//
+// Indexes: Agent(actorId), Agent(status), Agent(ensName) UNIQUE,
+// LivenessChallenge(actorId, status), LivenessChallenge(agentId),
+// LivenessChallenge(nonce) UNIQUE.
+
 // Added 2026-09-12 (Xander V2 Phase 3, spec sections 5.8, 7, 20), migration
 // `add_capability_policy`. PURELY ADDITIVE — Policy, PolicyRule, Capability,
 // CapabilityUsage and AssuranceLease. No V1 path reads or writes any of them.

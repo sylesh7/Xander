@@ -255,6 +255,7 @@ model Actor {
   signals      TrustSignal[]
   capabilities Capability[]
   leases       AssuranceLease[]
+  agents       Agent[]
 
   @@index([actorType, status])
 }
@@ -583,6 +584,92 @@ model AssuranceLease {
   updatedAt          DateTime  @updatedAt
 
   @@index([actorId, status, expiresAt])
+}
+
+// ===========================================================================
+// XANDER V2 — Phase 5: human-backed agents + active liveness (spec 5.4, 9, 10)
+// Migration `add_agent_liveness`. Purely additive; V1 untouched.
+// ===========================================================================
+
+/**
+ * A human-backed AI agent — spec section 5.4.
+ *
+ * An Agent is not an Actor; it HAS one. Invariant 3.4 keeps wallet, human and
+ * agent distinct, so the agent's authority flows through its Actor's
+ * capabilities rather than living on the agent row.
+ *
+ * `ensName` is what makes the human-backing claim public: the agent is a
+ * subname of the operator's name, so `AGENT_BACKED_BY` is verifiable on-chain
+ * instead of being a private assertion in this table.
+ */
+model Agent {
+  id       String @id @default(cuid())
+  actorId  String
+  actor    Actor  @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  name     String
+  /** DRAFT | VERIFYING | HUMAN_BACKED | ACTIVE | RESTRICTED | FROZEN | REVOKED */
+  status   String @default("DRAFT")
+
+  agentUri        String?
+  erc8004AgentId  String? // Phase 6
+  worldAgentId    String?
+  /** ENS subname, e.g. alpha.xander.eth. Phase 3.5 mints it. */
+  ensName         String? @unique
+  ensTokenId      String?
+  /** The World verification that established human backing. */
+  worldChallengeId String?
+  /** The assurance lease this agent's authority hangs from. */
+  assuranceLeaseId String?
+
+  configurationJson Json?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  challenges LivenessChallenge[]
+
+  @@index([actorId])
+  @@index([status])
+}
+
+/**
+ * One active-liveness challenge — spec section 10.1.
+ *
+ * NO BIOMETRIC MATERIAL IS STORED. Sections 3.7 and 28 forbid it, and nothing
+ * here would allow reconstructing a face: a nonce, what was asked, whether it
+ * was satisfied, and the derived finger counts that justified the verdict.
+ * The landmark trace itself is verified and discarded.
+ *
+ * `nonce` is unique and `consumedAt` is set on first use, which together make a
+ * captured trace worthless on a second submission — replay protection by the
+ * same reasoning as V1's World nullifier.
+ */
+model LivenessChallenge {
+  id       String  @id @default(cuid())
+  agentId  String?
+  agent    Agent?  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  actorId  String
+
+  /** SHOW_N_FINGERS | ... */
+  challengeType String
+  /** The parameter, e.g. how many fingers. */
+  target        Int
+  nonce         String   @unique
+  /** Binds the proof to the session that requested it. */
+  sessionBinding String
+  expiresAt     DateTime
+  /** ISSUED | PASSED | FAILED | EXPIRED */
+  status        String   @default("ISSUED")
+  /** Set the moment a proof is accepted OR rejected — single use either way. */
+  consumedAt    DateTime?
+  failureReason String?
+  /** Derived counts only. Never imagery. */
+  signalJson    Json?
+  cvVersion     String?
+  createdAt     DateTime @default(now())
+  resolvedAt    DateTime?
+
+  @@index([actorId, status])
+  @@index([agentId])
 }
 
 /**
