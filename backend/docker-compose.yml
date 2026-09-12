@@ -33,6 +33,37 @@ services:
       timeout: 5s
       retries: 10
 
+  # V2 Phase 4. Reuses the Postgres above rather than standing up a second
+  # database: auto-setup creates its own `temporal` and `temporal_visibility`
+  # schemas there, so the whole stack stays two containers plus this one.
+  #
+  # Host port 7234, not Temporal's default 7233 — same reasoning as the 5433 and
+  # 6380 remaps, so this coexists with any other Temporal a developer runs.
+  temporal:
+    image: temporalio/auto-setup:1.29.0
+    container_name: xander-temporal
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_USER: user
+      POSTGRES_PWD: pass
+      POSTGRES_SEEDS: postgres
+      # Namespace the workflows live in, created automatically at first boot.
+      DEFAULT_NAMESPACE: xander
+      DEFAULT_NAMESPACE_RETENTION: 72h
+    ports:
+      - '7234:7233'
+    healthcheck:
+      test: ['CMD', 'tctl', '--address', 'temporal:7233', 'cluster', 'health']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 40s
+
 volumes:
   postgres-data:
   redis-data:

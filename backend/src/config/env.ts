@@ -209,6 +209,22 @@ const envSchema = z.object({
   ASSURANCE_TTL_HIGH_RISK_SECONDS: num(900),
   ASSURANCE_TTL_CRITICAL_SECONDS: num(0),
 
+  // --- V2 Phase 4: Temporal workflows (spec section 14) --------------------
+  /** Off by default so the API and test suite run without a Temporal server. */
+  TEMPORAL_ENABLED: boolFromString.default('true'),
+  /** Host port 7234, remapped off Temporal's default 7233 like Postgres and Redis. */
+  TEMPORAL_ADDRESS: z.string().default('localhost:7234'),
+  TEMPORAL_NAMESPACE: z.string().default('xander'),
+  TEMPORAL_TASK_QUEUE: z.string().default('xander-authorization'),
+  /**
+   * How long a workflow waits for a human or an assurance proof before giving
+   * up. Section 30.4 requires the timeout path to be tested, so it is config
+   * rather than an inline constant. Default 1 hour.
+   */
+  WORKFLOW_APPROVAL_TIMEOUT_SECONDS: num(3600),
+  /** How long the client waits to reach Temporal before treating it as down. */
+  TEMPORAL_CONNECT_TIMEOUT_MS: num(5000),
+
   // --- V2 Phase 3.5: ENSv2 identity + EAC enforcement ----------------------
   // Addresses are CONFIG, not constants in code. Section 0.2 rule 1 keeps
   // chain-specific data in a table or env, and ENS's own docs warn these

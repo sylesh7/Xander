@@ -34,7 +34,8 @@
     "check:ens": "tsx --env-file=.env scripts/check-ens.ts",
     "ens:register-parent": "tsx --env-file=.env scripts/ens-register-parent.ts",
     "ens:deploy-registry": "tsx --env-file=.env scripts/ens-deploy-registry.ts",
-    "check:ens-agent": "tsx --env-file=.env scripts/check-ens-agent.ts"
+    "check:ens-agent": "tsx --env-file=.env scripts/check-ens-agent.ts",
+    "worker": "tsx --env-file=.env src/workflow/worker.ts"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"
@@ -46,6 +47,10 @@
     "@mastra/mcp": "^1.17.3",
     "@prisma/client": "^6.1.0",
     "@substreams/core": "^0.16.0",
+    "@temporalio/activity": "^1.23.0",
+    "@temporalio/client": "^1.23.0",
+    "@temporalio/worker": "^1.23.0",
+    "@temporalio/workflow": "^1.23.0",
     "@worldcoin/idkit-core": "^4.2.4",
     "bullmq": "^6.3.4",
     "express": "^4.21.2",
@@ -57,6 +62,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@temporalio/testing": "^1.23.0",
     "@types/express": "^5.0.0",
     "@types/node": "^22.10.5",
     "@types/supertest": "^6.0.2",
