@@ -209,6 +209,49 @@ const envSchema = z.object({
   ASSURANCE_TTL_HIGH_RISK_SECONDS: num(900),
   ASSURANCE_TTL_CRITICAL_SECONDS: num(0),
 
+  // --- V2 Phase 3.5: ENSv2 identity + EAC enforcement ----------------------
+  // Addresses are CONFIG, not constants in code. Section 0.2 rule 1 keeps
+  // chain-specific data in a table or env, and ENS's own docs warn these
+  // contracts "are not yet final and may change prior to mainnet deployment" —
+  // hardcoding them would make a redeployment a code change.
+  //
+  // Defaults are the ENSv2 Sepolia beta deployment, each verified on-chain on
+  // 2026-09-12: real bytecode present, chainId 0xaa36a7, and both registries
+  // answering supportsInterface(ERC1155) with true.
+  ENS_ENABLED: boolFromString.default('true'),
+  ENS_CHAIN_ID: num(11_155_111),
+  ENS_RPC_URL: z.string().url().default('https://ethereum-sepolia-rpc.publicnode.com'),
+  /** Funds registrations and signs grantRoles/revokeRoles. Absent = read-only. */
+  ENS_OPERATOR_PRIVATE_KEY: optionalStr(),
+  /** The 2LD agents live under, without the .eth suffix. */
+  ENS_PARENT_LABEL: z.string().default('xander'),
+  /** Registration length for the parent name, seconds. Default 1 year. */
+  ENS_PARENT_DURATION_SECONDS: num(31_536_000),
+  /** Registration length for an agent subname. Default 30 days — agents expire. */
+  ENS_AGENT_DURATION_SECONDS: num(2_592_000),
+
+  /**
+   * ENSv2 charges rent in an ERC20, NOT native ETH — `getRegisterPrice` with
+   * the zero address reverts `PaymentTokenNotSupported(address)` (selector
+   * 0x02e2ae9e, confirmed on-chain 2026-09-12). This is Circle's Sepolia USDC,
+   * verified by reading name/symbol/decimals off the token and by the
+   * StandardRentPriceOracle answering isPaymentToken(...) with true.
+   */
+  ENS_PAYMENT_TOKEN: z.string().default('0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238'),
+  /** Implementation the agent subname registry is proxied from. */
+  ENS_USER_REGISTRY_IMPL: z.string().default('0x624a25d67b59d587752ebec8dded8827dae52050'),
+  /**
+   * The deployed agent registry proxy, set once `ens:deploy-registry` has run.
+   * Empty means agents cannot be registered yet.
+   */
+  ENS_AGENT_REGISTRY: optionalStr(),
+  ENS_ETH_REGISTRY: z.string().default('0xbdc85dd5b15d7ecb354cd7cb6f2c50b4f2c4f0e2'),
+  ENS_ETH_REGISTRAR: z.string().default('0xa88553f454b77203b0d036a05c894d555eaaa2cc'),
+  ENS_ROOT_REGISTRY: z.string().default('0x8115186e8f2e0b0281e86ab91f0f48ba90364354'),
+  ENS_UNIVERSAL_RESOLVER: z.string().default('0x4a1817d13e9cf196f471725176355c1234b63c70'),
+  ENS_PERMISSIONED_RESOLVER_IMPL: z.string().default('0x9eae5c2730a7dd16bdd1dee6421a1b91e3b0365e'),
+  ENS_VERIFIABLE_FACTORY: z.string().default('0x10dc6333cdfe1fcef624c6e0a8221b91804cd7ef'),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them
