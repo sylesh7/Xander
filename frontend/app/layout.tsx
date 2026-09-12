@@ -1,43 +1,31 @@
-import type { Metadata } from 'next';
+import type { Metadata } from 'next'
+import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Xander | Graph-Native Sybil Risk Engine',
+  title: 'Minneapolis Web & Drupal Studio — Builds, Rescue, Maintenance',
   description:
-    'A Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie Check as a selective escalation layer.',
-};
+    'Senior Minneapolis web studio: Drupal-deep, WordPress-fluent, mobile and .NET capable. A $950 site health check to start, maintenance from $150/mo, and honest advice first — even when it\'s "don\'t hire us."',
+}
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
+      <head>
+        <link rel="preload" href="/fonts/anton-400.woff2" as="font" type="font/woff2" crossOrigin="" />
+        <link rel="preload" href="/fonts/courier-prime-400.woff2" as="font" type="font/woff2" crossOrigin="" />
+      </head>
       <body>
-        {/* Vite bundle's compiled stylesheet, served verbatim from /public */}
-        <link rel="stylesheet" href="/assets/index_bwxw9yto.css" precedence="high" />
-        {/* Hides removed template sections. The Vite bundle owns the actual
-            render (createRoot, not hydrate) so we can't edit its markup
-            directly — CSS is the reliable way to strip sections regardless
-            of how/when the bundle mounts. */}
-        <style>{`
-          #demo,
-          #interface,
-          #browsers,
-          #ecosystem,
-          #faq {
-            display: none !important;
-          }
-          .section-rail li:has(a[href="#demo"]),
-          .section-rail li:has(a[href="#interface"]),
-          .section-rail li:has(a[href="#browsers"]),
-          .section-rail li:has(a[href="#ecosystem"]),
-          .section-rail li:has(a[href="#faq"]) {
-            display: none !important;
-          }
-        `}</style>
-        {children}
+        <div className="dn-ground" aria-hidden="true" />
+        <div className="dn-scan" aria-hidden="true" />
+        <div className="dn-grain" aria-hidden="true" />
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-[70] focus:bg-ink focus:px-3 focus:py-2 focus:font-tele focus:text-xs focus:tracking-widest focus:text-paper focus:uppercase"
+        >
+          Skip to content
+        </a>
+        <div className="relative z-[1]">{children}</div>
       </body>
     </html>
-  );
+  )
 }
