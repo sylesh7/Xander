@@ -42,6 +42,11 @@ import {
 } from '../verification/liveness-service.js'
 import { getLiveLease, listCapabilities } from '../capabilities/capability-service.js'
 import {
+  executeAuthorizedAction,
+  NoSuchIntentError,
+} from '../authorization/enforcement/execution-service.js'
+import { enforcementStatus } from '../authorization/enforcement/enforcement-service.js'
+import {
   getLatestSnapshot,
   getTrustHistory,
   getTrustSignals,
@@ -521,6 +526,43 @@ v2Router.post(
     // 200 either way: a rejected proof is a valid answer to a valid request,
     // and a 4xx would make a legitimate failed attempt look like a client bug.
     res.json(result)
+  }),
+)
+
+/**
+ * The execution boundary — section 18.2, Phase 8.
+ *
+ * No executor is passed: over HTTP the caller performs the action itself, and
+ * what it needs from Xander is the gate and the receipt. A 200 with
+ * `executed: false` is the normal refusal — the request was valid, the answer
+ * is no. Only a genuinely broken intent id is a 4xx.
+ */
+v2Router.post(
+  '/v2/intents/:id/execute',
+  asyncHandler(async (req, res) => {
+    try {
+      const outcome = await executeAuthorizedAction(String(req.params.id))
+      res.status(outcome.executed ? 200 : 409).json(outcome)
+    } catch (err) {
+      if (err instanceof NoSuchIntentError) {
+        res.status(404).json({ error: 'not_found', message: err.message })
+        return
+      }
+      throw err
+    }
+  }),
+)
+
+/** What every enforcement boundary currently believes about one actor. */
+v2Router.get(
+  '/v2/actors/:id/enforcement',
+  asyncHandler(async (req, res) => {
+    const actor = await prisma.actor.findUnique({ where: { id: String(req.params.id) } })
+    if (!actor) {
+      res.status(404).json({ error: 'not_found', message: 'No such actor.' })
+      return
+    }
+    res.json(await enforcementStatus(actor.id))
   }),
 )
 

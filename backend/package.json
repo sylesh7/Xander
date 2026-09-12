@@ -37,7 +37,8 @@
     "check:ens-agent": "tsx --env-file=.env scripts/check-ens-agent.ts",
     "worker": "tsx --env-file=.env src/workflow/worker.ts",
     "check:agent-ens": "tsx --env-file=.env scripts/check-agent-ens.ts",
-    "check:erc8004": "tsx --env-file=.env scripts/check-erc8004.ts"
+    "check:erc8004": "tsx --env-file=.env scripts/check-erc8004.ts",
+    "check:enforcement": "tsx --env-file=.env scripts/check-enforcement.ts"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"

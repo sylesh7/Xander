@@ -403,8 +403,20 @@ model ActionReceipt {
   trustSnapshotId      String? // Phase 2
   evidenceSnapshotHash String
   decisionPayloadHash  String
-  executionStatus      String                @default("NOT_EXECUTED") // NOT_EXECUTED | EXECUTED | FAILED
+  /**
+   * NOT_EXECUTED | EXECUTED_AS_AUTHORIZED | BLOCKED_UNENFORCEABLE | FAILED
+   *
+   * Phase 8 / section 18.2: EXECUTED_AS_AUTHORIZED is written only when every
+   * applicable enforcement boundary positively confirmed. An action that ran
+   * without that proof is BLOCKED_UNENFORCEABLE, never EXECUTED.
+   */
+  executionStatus      String                @default("NOT_EXECUTED")
   executionTxHash      String?
+  /** Which boundaries were consulted. Phase 8. */
+  enforcementAdapters  String[]              @default([])
+  /** What they collectively said, in one line. Phase 8. */
+  enforcementReason    String?
+  executedAt           DateTime?
   createdAt            DateTime              @default(now())
 
   @@index([intentId])
