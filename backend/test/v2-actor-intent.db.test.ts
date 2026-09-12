@@ -25,6 +25,13 @@ const auth = <T extends { set: (a: string, b: string) => T }>(req: T): T =>
 
 const randomWallet = (): string => `0x${randomBytes(20).toString('hex')}`
 
+/** Fixture wallets both /v2 suites share. Their actors are never deleted. */
+const SHARED_FIXTURE_WALLETS = [
+  FIXTURE_CLEAN_WALLET,
+  FIXTURE_CLUSTERED_WALLET,
+  FIXTURE_CHALLENGE_WALLET,
+].map((w) => w.toLowerCase())
+
 const createdActorIds: string[] = []
 function trackActor(id: string): string {
   createdActorIds.push(id)
@@ -40,8 +47,18 @@ beforeAll(async () => {
 })
 
 afterAll(async () => {
-  // Cascades clear identities, intents, decisions and receipts.
-  await prisma.actor.deleteMany({ where: { id: { in: createdActorIds } } })
+  // Never delete an actor bound to a SHARED fixture wallet. Both /v2 test files
+  // adopt those same actors, and vitest runs files in parallel — whichever
+  // finished first used to delete the actor the other was mid-test on, cascading
+  // away its in-flight intents and surfacing as a 500. Actors for fixture
+  // wallets are shared, seed-like state; leaving the rows behind is harmless.
+  const shared = await prisma.actorIdentity.findMany({
+    where: { kind: 'WALLET', externalId: { in: SHARED_FIXTURE_WALLETS } },
+    select: { actorId: true },
+  })
+  const protectedIds = new Set(shared.map((r) => r.actorId))
+  const deletable = createdActorIds.filter((id) => !protectedIds.has(id))
+  await prisma.actor.deleteMany({ where: { id: { in: deletable } } })
   await prisma.$disconnect()
 })
 
@@ -310,6 +327,7 @@ describe('V2 Phase 1 — idempotency and races', () => {
       auth(request(app).post('/v2/intents')).send(payload),
       auth(request(app).post('/v2/intents')).send(payload),
     ])
+    expect([a.status, b.status].every((s) => s < 300), `${a.status}/${b.status}`).toBe(true)
     trackActor(a.body.actorId as string)
 
     expect(a.body.intentId).toBe(b.body.intentId)
@@ -326,6 +344,7 @@ describe('V2 Phase 1 — idempotency and races', () => {
       auth(request(app).post('/v2/intents')).send(claimIntent(wallet)),
       auth(request(app).post('/v2/intents')).send(claimIntent(wallet)),
     ])
+    expect([a.status, b.status].every((s) => s < 300), `${a.status}/${b.status}`).toBe(true)
     trackActor(a.body.actorId as string)
 
     expect(a.body.actorId).toBe(b.body.actorId)

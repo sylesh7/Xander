@@ -161,6 +161,39 @@ const envSchema = z.object({
    */
   INTENT_DEFAULT_TTL_SECONDS: num(900),
 
+  // --- V2 Phase 2: Trust Context (spec section 6) --------------------------
+  // Band thresholds. Risk is checked before anything else can raise a band, so
+  // these two are the only knobs that can produce a dangerous band.
+  TRUST_CRITICAL_COORDINATION_RISK: num(0.7),
+  TRUST_HIGH_COORDINATION_RISK: num(0.35),
+  /** Below this, coordination risk is low enough for a LOW band. */
+  TRUST_LOW_COORDINATION_RISK: num(0.35),
+  TRUST_ESTABLISHED_HISTORY_STRENGTH: num(0.5),
+  TRUST_VERIFIED_HUMAN_ASSURANCE: num(1),
+  /**
+   * Fewer measured dimensions than this and the actor is INSUFFICIENT_EVIDENCE
+   * rather than banded. Invariant 3.2 — absence of evidence is not low risk.
+   */
+  TRUST_MIN_KNOWN_DIMENSIONS: num(2),
+
+  // Freshness classes (section 21.3). Explicit classes, not a decay curve.
+  TRUST_FRESHNESS_AGING_SECONDS: num(21_600), // 6h — matches the V1 guard
+  TRUST_FRESHNESS_STALE_SECONDS: num(86_400), // 24h
+  TRUST_FRESHNESS_EXPIRED_SECONDS: num(604_800), // 7d
+
+  /** Evidence span, in days, at which historyStrength reaches 1.0. */
+  TRUST_HISTORY_FULL_STRENGTH_DAYS: num(180),
+  /** Event count at which historyStrength's volume half reaches 1.0. */
+  TRUST_HISTORY_FULL_STRENGTH_EVENTS: num(50),
+  /** How much recent evidence counts as "recent" for drift, in seconds. */
+  TRUST_DRIFT_RECENT_WINDOW_SECONDS: num(604_800), // 7d
+
+  // Drift sensitivity (section 6.3).
+  TRUST_DRIFT_MIN_BASELINE_EVENTS: num(5),
+  TRUST_DRIFT_UNUSUAL_AMOUNT_MULTIPLE: num(10),
+  TRUST_DRIFT_TIMING_SHIFT_HOURS: num(6),
+  TRUST_DRIFT_CLUSTER_EXPANSION_MULTIPLE: num(2),
+
   // --- SYLESH's section (Backend-Sylesh.md Section 0.6) -------------------
   // Credentials stay optional at boot so the server starts without World
   // access (Phase 13 is access-gated with no published SLA). Every one of them

@@ -38,6 +38,13 @@ export default defineConfig({
       // The cache is off by default under test so unit tests do not need a live
       // Redis. The tests that exercise caching turn it on explicitly.
       RISK_CACHE_ENABLED: 'false',
+      // The express rate limiter is app-level shared state, and vitest runs test
+      // FILES in parallel — the claim suite and both /v2 suites hit limited
+      // routes at once and blow through the production default of 30/min. That
+      // surfaced as `res.body.decision` being undefined, because the request had
+      // actually been answered with a 429. Raised for the test process only;
+      // production keeps its real limit, and no test asserts this threshold.
+      RATE_LIMIT_MAX_REQUESTS: '100000',
     },
   },
 })

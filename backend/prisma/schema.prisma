@@ -251,6 +251,8 @@ model Actor {
 
   identities ActorIdentity[]
   intents    Intent[]
+  snapshots  TrustSnapshot[]
+  signals    TrustSignal[]
 
   @@index([actorType, status])
 }
@@ -404,6 +406,81 @@ model ActionReceipt {
 
   @@index([intentId])
   @@index([actorId])
+}
+
+/**
+ * The trust vector for one actor at one moment — V2 spec sections 5.6 and 6,
+ * added in Phase 2, migration `add_trust_context`. Purely additive.
+ *
+ * APPEND-ONLY BY DESIGN. Section 21 asks for "a history of decisions, not
+ * simply one mutable score", so a re-evaluation writes a NEW row rather than
+ * updating the last one. That is what makes a past authorization auditable:
+ * the snapshot it cited still says what it said at the time, even after the
+ * actor's trust has moved on.
+ *
+ * EVERY DIMENSION IS NULLABLE, AND NULL MEANS UNKNOWN — never zero. Invariant
+ * 3.2 and section 6.1: a cold-start actor's dimensions must not be mapped to
+ * LOW_RISK. Storing 0 for "we could not measure this" would be read as
+ * "measured, and it came out clean" by the first query that touched it, so the
+ * column is null and the reader is forced to decide what absence means.
+ * `dimensionsJson` carries each dimension's state and the basis for its value,
+ * because a trust number nobody can account for is not auditable.
+ */
+model TrustSnapshot {
+  id         String  @id @default(cuid())
+  actorId    String
+  actor      Actor   @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  campaignId String?
+
+  // null = UNKNOWN. See dimensionsJson for the state and reasoning behind each.
+  behaviorIntegrity       Float?
+  coordinationRisk        Float?
+  historyStrength         Float?
+  humanAssurance          Float?
+  agentReputation         Float?
+  evidenceFreshness       Float?
+  investigationConfidence Float?
+
+  overallBand String // VERIFIED_LOW | ESTABLISHED_LOW | UNCERTAIN | HIGH_RISK | CRITICAL | INSUFFICIENT_EVIDENCE
+  /** Per-dimension { value, state, basis } — the audit trail for the numbers above. */
+  dimensionsJson Json
+  /** Drift signals observed when this snapshot was built. A signal, never a verdict. */
+  driftJson      Json?
+  /** Evidence-source provenance behind the snapshot. */
+  evidenceIds    Json
+
+  engineVersion String
+  policyVersion String
+  createdAt     DateTime @default(now())
+
+  @@index([actorId, createdAt])
+}
+
+/**
+ * An append-only trust event — V2 spec sections 21.1 and 21.2.
+ *
+ * The counterpart to TrustSnapshot: a snapshot is trust as computed at a
+ * moment, this is the ledger of things that happened to earn it. Section 21
+ * wants trust to evolve from a history rather than a single mutable number, and
+ * a computed vector alone cannot answer "why did this actor's trust change?".
+ *
+ * Never updated or deleted, including when a signal turns out to be wrong — a
+ * retraction is another row, so the original observation survives.
+ */
+model TrustSignal {
+  id        String   @id @default(cuid())
+  actorId   String
+  actor     Actor    @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  kind      String // SUCCESSFUL_ACTION | POLICY_VIOLATION | BEHAVIOR_DRIFT | ...
+  positive  Boolean
+  weight    Float // 0..1 — how much this event should count
+  detail    String
+  source    String // what produced the signal, never blank
+  metadataJson Json?
+  createdAt DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([actorId, kind])
 }
 
 /**

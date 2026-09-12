@@ -19,6 +19,13 @@ import { ACTOR_TYPES, EVM_ADDRESS_PATTERN } from '../actor/actor-types.js'
 import { ActorError, createActor, getActor } from '../actor/actor-service.js'
 import { ACTION_TYPES } from '../intent/intent-types.js'
 import { createIntent, getIntent, IntentError } from '../intent/intent-service.js'
+import { buildTrustContext } from '../trust/trust-context.js'
+import {
+  getLatestSnapshot,
+  getTrustHistory,
+  getTrustSignals,
+  trustSignalBalance,
+} from '../trust/trust-history.js'
 
 export const v2Router: Router = Router()
 
@@ -89,6 +96,92 @@ v2Router.post(
     const body = req.body as z.infer<typeof createIntentSchema>
     const intent = await createIntent(body)
     res.status(intent.replayed ? 200 : 201).json(intent)
+  }),
+)
+
+/**
+ * The actor's trust context (spec section 24).
+ *
+ * Rate limited alongside the intent route: building a context can trigger a
+ * live Graph refresh. `?fresh=false` serves the latest stored snapshot instead,
+ * which is the cheap read an operator wants while investigating.
+ */
+v2Router.get(
+  '/v2/actors/:id/trust',
+  upstreamRateLimit,
+  asyncHandler(async (req, res) => {
+    const actorId = String(req.params.id)
+    const actor = await getActor(actorId)
+    if (!actor) {
+      res.status(404).json({ error: 'not_found', message: 'No such actor.' })
+      return
+    }
+
+    if (req.query.fresh === 'false') {
+      const latest = await getLatestSnapshot(actorId)
+      if (!latest) {
+        res.status(404).json({
+          error: 'not_found',
+          message: 'No trust snapshot yet for this actor. Omit ?fresh=false to build one.',
+        })
+        return
+      }
+      res.json({ actorId, band: latest.overallBand, snapshotId: latest.id, cached: true })
+      return
+    }
+
+    const trust = await buildTrustContext(actorId)
+    res.json({
+      actorId,
+      snapshotId: trust.snapshotId,
+      band: trust.band,
+      vector: trust.vector,
+      drift: trust.drift,
+      evidenceIds: trust.evidenceIds,
+      engineVersion: trust.engineVersion,
+      policyVersion: trust.policyVersion,
+      cached: false,
+    })
+  }),
+)
+
+/** Append-only trust history — snapshots and signals (spec section 21). */
+v2Router.get(
+  '/v2/actors/:id/trust/history',
+  asyncHandler(async (req, res) => {
+    const actorId = String(req.params.id)
+    const actor = await getActor(actorId)
+    if (!actor) {
+      res.status(404).json({ error: 'not_found', message: 'No such actor.' })
+      return
+    }
+    const [snapshots, signals, balance] = await Promise.all([
+      getTrustHistory(actorId),
+      getTrustSignals(actorId),
+      trustSignalBalance(actorId),
+    ])
+    res.json({
+      actorId,
+      snapshots: snapshots.map((s) => ({
+        snapshotId: s.id,
+        band: s.overallBand,
+        engineVersion: s.engineVersion,
+        policyVersion: s.policyVersion,
+        createdAt: s.createdAt.toISOString(),
+      })),
+      signals: signals.map((s) => ({
+        kind: s.kind,
+        positive: s.positive,
+        weight: s.weight,
+        detail: s.detail,
+        source: s.source,
+        createdAt: s.createdAt.toISOString(),
+      })),
+      // Reported only — never fed back into the band. Section 3.1 keeps
+      // deterministic evidence in charge, so a run of routine successes cannot
+      // offset a live coordination signal.
+      balance,
+    })
   }),
 )
 

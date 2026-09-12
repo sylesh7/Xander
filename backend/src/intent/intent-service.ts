@@ -19,6 +19,7 @@ import { prisma } from '../lib/prisma.js'
 import { getRiskThroughCache } from '../cache/risk-cache.js'
 import { decide, type Decision, type PolicyDecision } from '../policy/policy-engine.js'
 import { resolveActorForWallet } from '../actor/actor-resolver.js'
+import { buildTrustContext } from '../trust/trust-context.js'
 import { isEvmAddress, normalizeAddress } from '../actor/actor-types.js'
 import {
   REASON_CODES,
@@ -213,7 +214,14 @@ export async function createIntent(
     throw err
   }
 
-  const decision = await authorize({ intentId: intent.id, actor, parametersHash, expiresAt, now })
+  const decision = await authorize({
+    intentId: intent.id,
+    actor,
+    parametersHash,
+    expiresAt,
+    now,
+    resourceId: params.resourceId,
+  })
 
   await prisma.intent.update({ where: { id: intent.id }, data: { status: 'DECIDED' } })
 
@@ -239,8 +247,9 @@ async function authorize(args: {
   parametersHash: string
   expiresAt: Date
   now: Date
+  resourceId: string
 }): Promise<{ result: AuthorizationResult }> {
-  const { intentId, actor, parametersHash, expiresAt, now } = args
+  const { intentId, actor, parametersHash, expiresAt, now, resourceId } = args
 
   if (isExpired(expiresAt, now)) {
     return persistDecision({
@@ -307,12 +316,27 @@ async function authorize(args: {
   const { risk } = await getRiskThroughCache(walletIdentity.externalId)
   const policy = await decide(risk)
 
+  // Phase 2: build and persist the trust context this decision rests on, so
+  // the decision cites an immutable snapshot rather than only a bare score.
+  // A trust failure must not silently become a permissive decision, so it
+  // degrades to "no snapshot" and the deterministic V1 path still governs.
+  let trustSnapshotId: string | null = null
+  let trustBand: string | null = null
+  try {
+    const trust = await buildTrustContext(actor.id, { campaignId: resourceId, risk })
+    trustSnapshotId = trust.snapshotId
+    trustBand = trust.band
+  } catch (err) {
+    logger.warn({ actorId: actor.id, err }, 'trust context unavailable for this decision')
+  }
+
   return persistDecision({
     intentId,
     actorId: actor.id,
     result: RESULT_BY_V1_DECISION[policy.decision],
     reasonCode: REASON_BY_V1_DECISION[policy.decision],
-    reasonSummary: policy.reason,
+    reasonSummary:
+      trustBand === null ? policy.reason : `${policy.reason} Trust band: ${trustBand}.`,
     policyVersion: policy.policyVersion,
     riskScore: policy.riskScore,
     clusterId: policy.clusterId,
@@ -320,6 +344,7 @@ async function authorize(args: {
     requiredAssurance: policy.requiredAssurance,
     evidenceIds: evidenceLineage(policy),
     parametersHash,
+    trustSnapshotId,
   })
 }
 
@@ -336,6 +361,7 @@ async function persistDecision(args: {
   requiredAssurance: string | null
   evidenceIds: string[]
   parametersHash: string
+  trustSnapshotId?: string | null
 }): Promise<{ result: AuthorizationResult }> {
   const decision = await prisma.authorizationDecision.create({
     data: {
@@ -349,6 +375,7 @@ async function persistDecision(args: {
       riskScore: args.riskScore,
       clusterId: args.clusterId,
       confidence: args.confidence,
+      trustSnapshotId: args.trustSnapshotId ?? null,
     },
   })
 
@@ -358,6 +385,7 @@ async function persistDecision(args: {
       decisionId: decision.id,
       actorId: args.actorId,
       policyVersion: args.policyVersion,
+      trustSnapshotId: args.trustSnapshotId ?? null,
       evidenceSnapshotHash: hashEvidenceSnapshot(args.evidenceIds),
       decisionPayloadHash: hashDecisionPayload({
         result: args.result,

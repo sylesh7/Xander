@@ -222,6 +222,20 @@ model Investigation {
   @@index([clusterId])
 }
 
+// Added 2026-09-12 (Xander V2 Phase 2, spec sections 5.6, 6 and 21), migration
+// `add_trust_context`. PURELY ADDITIVE — models TrustSnapshot and TrustSignal,
+// both append-only, neither read nor written by any V1 path.
+//
+// Every trust dimension column is NULLABLE and NULL MEANS UNKNOWN, never zero.
+// A 0 would be indistinguishable from "measured, and it came out clean" for a
+// wallet nobody has any evidence on, which is precisely invariant 3.2's
+// warning. The band derivation is ordered rather than weighted so a strong
+// dimension can never average away a live coordination signal.
+//
+// Definitions live in prisma/schema.prisma with their rationale; not duplicated
+// here to avoid drift. Indexes: TrustSnapshot(actorId, createdAt),
+// TrustSignal(actorId, createdAt), TrustSignal(actorId, kind).
+
 // Added 2026-09-12 (Xander V2 Phase 1, spec sections 5.1-5.10), migration
 // `add_actor_intent_foundation`. PURELY ADDITIVE — five new models, no existing
 // model, column, index or constraint changed, and no V1 code path reads or
