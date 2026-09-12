@@ -15,6 +15,7 @@
 import { Worker, type Job } from 'bullmq'
 import { env } from '../config/env.js'
 import { logger } from '../lib/logger.js'
+import { actorsForWallets, applyTrustMutation } from '../trust/trust-mutation.js'
 import { prisma } from '../lib/prisma.js'
 import {
   RISK_INVALIDATION_QUEUE,
@@ -75,6 +76,51 @@ export async function handleInvalidation(job: Job<RiskInvalidationJob>): Promise
     },
     'risk-invalidation: cache evicted and repopulated',
   )
+
+  // Phase 7. Refreshing the cache is not enough on its own: an actor can become
+  // materially riskier while still holding authority granted against the old
+  // picture. This re-evaluates every affected actor and withdraws or narrows
+  // what they hold when trust has degraded.
+  //
+  // Deliberately after the cache write and wrapped: the V1 invalidation
+  // contract is "evict and repopulate", and a failure in the V2 consequence
+  // path must not fail the job and cause a retry that re-does the refresh.
+  try {
+    await mutateTrustForWallets(wallets)
+  } catch (err) {
+    logger.error({ walletOrClusterId, err }, 'live trust mutation failed after invalidation')
+  }
+}
+
+/**
+ * Re-evaluates the actors behind a set of wallets and applies any consequences.
+ *
+ * Exported so the Substreams path and a manual operator trigger share one
+ * implementation rather than drifting apart.
+ */
+export async function mutateTrustForWallets(wallets: readonly string[]): Promise<number> {
+  const actorIds = await actorsForWallets(wallets)
+  if (actorIds.length === 0) return 0
+
+  let changed = 0
+  for (const actorId of actorIds) {
+    const result = await applyTrustMutation(actorId, { reason: 'substreams-invalidation' })
+    if (result.consequence !== 'NONE' || result.degraded) {
+      changed++
+      logger.warn(
+        {
+          actorId,
+          previousBand: result.previousBand,
+          currentBand: result.currentBand,
+          consequence: result.consequence,
+          capabilitiesAffected: result.capabilitiesAffected,
+          workflowsSignalled: result.workflowsSignalled,
+        },
+        'live event changed an actor\'s authority',
+      )
+    }
+  }
+  return changed
 }
 
 let worker: Worker<RiskInvalidationJob> | null = null
