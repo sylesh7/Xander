@@ -7,3 +7,4 @@
  */
 export { authorizationWorkflow } from './authorization.workflow.js'
 export { capabilityLeaseWorkflow } from './capability.workflow.js'
+export { incidentWorkflow } from './incident.workflow.js'

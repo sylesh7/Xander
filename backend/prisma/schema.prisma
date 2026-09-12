@@ -178,7 +178,27 @@ model Investigation {
   createdAt    DateTime  @default(now())
   completedAt  DateTime?
 
+  // --- V2 Phase 10, spec section 15.1: the STRUCTURED finding ---------------
+  // The V1 investigator returned prose. Section 15.1 requires a shape a
+  // deterministic policy can actually consume, and `contradictingEvidenceIds`
+  // is the part that matters most: an investigator that can only find support
+  // for its own hypothesis is a confirmation-bias engine, not an investigator.
+  incidentId               String?
+  hypothesis               String?
+  supportingEvidenceIds    String[] @default([])
+  contradictingEvidenceIds String[] @default([])
+  affectedRelationships    Json?
+  /**
+   * 0..1, or null when the run could not justify one. Never defaulted to a number.
+   */
+  confidence               Float?
+  /**
+   * ALLOW | LIMIT | REVIEW | BLOCK — a RECOMMENDATION, never the authority.
+   */
+  recommendedAction        String?
+
   @@index([clusterId])
+  @@index([incidentId])
 }
 
 model EvidenceReceipt {
@@ -251,6 +271,7 @@ model Actor {
   leases       AssuranceLease[]
   agents       Agent[]
   x402Payments X402Payment[]
+  incidents    Incident[]
 
   @@index([actorType, status])
 }
@@ -895,4 +916,65 @@ model X402Payment {
 
   @@index([actorId, createdAt])
   @@index([status])
+}
+
+// ===========================================================================
+// XANDER V2 — Phase 10: AI Security Operations (spec sections 14.1, 15, 23)
+// Migration `add_incident`. Purely additive.
+// ===========================================================================
+
+/**
+ * A security incident — spec section 23.
+ * What turns a live Substreams alert plus an AI investigation into an actual
+ * security-operations workflow, rather than a log line nobody owns.
+ * `rootCause` is nullable and stays null until a human or a completed
+ * investigation supplies one. An incident closed with no stated cause is a
+ * incident nobody learned anything from, and defaulting the field to something
+ * plausible would hide that.
+ */
+model Incident {
+  id         String  @id @default(cuid())
+  actorId    String?
+  actor      Actor?  @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  clusterId  String?
+  campaignId String?
+
+  /**
+   * COORDINATION_DETECTED | TRUST_COLLAPSE | ENFORCEMENT_FAILURE | ASSURANCE_LAPSE | ANOMALOUS_VELOCITY | MANUAL
+   */
+  type     String
+  /**
+   * LOW | MEDIUM | HIGH | CRITICAL
+   */
+  severity String
+  /**
+   * OPEN | INVESTIGATING | MITIGATED | FALSE_POSITIVE | RESOLVED
+   */
+  status   String @default("OPEN")
+
+  openedAt        DateTime  @default(now())
+  closedAt        DateTime?
+  rootCause       String?
+  investigationId String?
+
+  /**
+   * What opened it — a trust signal, a worker, an operator. Provenance, not decoration.
+   */
+  source String
+  detail String?
+
+  /**
+   * What Xander DID about it, and why.
+   * Separate from the investigation's `recommendedAction` on purpose (section
+   * 15.3): the AI recommends, deterministic policy decides, and keeping the two
+   * in different columns is what makes it auditable when they disagree.
+   */
+  mitigation       String?
+  mitigationReason String?
+
+  updatedAt DateTime @updatedAt
+
+  @@index([status, severity])
+  @@index([actorId])
+  @@index([openedAt])
 }

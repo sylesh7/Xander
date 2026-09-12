@@ -246,3 +246,71 @@ export async function revokeActorCapabilities(args: {
 }): Promise<number> {
   return revokeCapabilities({ actorId: args.actorId, reason: args.reason })
 }
+
+// --- Phase 10: incident response (spec sections 14.1, 15, 23) --------------
+
+/**
+ * Runs the deterministic investigation — supporting AND counter-evidence.
+ *
+ * An activity rather than workflow code because it queries the database, which
+ * a deterministic workflow sandbox cannot do.
+ */
+export async function investigateIncidentActivity(incidentId: string): Promise<{
+  investigationId: string
+  counterFindings: number
+  doubt: number | null
+  summary: string
+}> {
+  const { investigateIncident } = await import('../incidents/incident-service.js')
+  const result = await investigateIncident(incidentId)
+  return {
+    investigationId: result.investigationId,
+    counterFindings: result.counterEvidence.findings.length,
+    doubt: result.counterEvidence.doubt,
+    summary: result.counterEvidence.summary,
+  }
+}
+
+/**
+ * The deterministic policy decision — section 15.3.
+ *
+ * The AI recommendation arrives as an argument and can only tighten the result.
+ */
+export async function decideIncidentActivity(args: {
+  incidentId: string
+  aiRecommendation: string | null
+}): Promise<{
+  mitigation: string
+  reason: string
+  aiAttemptedToWiden: boolean
+  capabilitiesAffected: number
+}> {
+  const { decideIncident } = await import('../incidents/incident-service.js')
+  const result = await decideIncident(args)
+  return {
+    mitigation: result.incident.mitigation ?? 'NONE',
+    reason: result.reconciled.reason,
+    aiAttemptedToWiden: result.reconciled.aiAttemptedToWiden,
+    capabilitiesAffected: result.capabilitiesAffected,
+  }
+}
+
+/**
+ * Tells an operator an incident needs them — section 14.1's final step.
+ *
+ * Logging IS the notification channel until Phase 11 gives Remote Authority a
+ * real one. Named honestly rather than pretending to page somebody: a function
+ * called `notifyOperator` that silently does nothing would be worse than one
+ * that says where the notification went.
+ */
+export async function notifyOperatorActivity(args: {
+  incidentId: string
+  mitigation: string
+  reason: string
+}): Promise<{ delivered: boolean; channel: string }> {
+  logger.warn(
+    { incidentId: args.incidentId, mitigation: args.mitigation, reason: args.reason },
+    'OPERATOR ATTENTION: incident mitigated',
+  )
+  return { delivered: true, channel: 'log' }
+}

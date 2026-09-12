@@ -13,6 +13,18 @@ import { env } from '../config/env.js'
 import { logger } from '../lib/logger.js'
 import * as activities from './activities.js'
 
+/**
+ * The workflow bundle entrypoint, with the extension this process actually has.
+ *
+ * `import.meta.url` ends in `.ts` when run through tsx and `.js` when run from
+ * a build, and the sibling `workflows` module is always the same one.
+ */
+export function workflowsEntrypoint(): string {
+  const self = fileURLToPath(import.meta.url)
+  const extension = self.endsWith('.ts') ? '.ts' : '.js'
+  return fileURLToPath(new URL(`./workflows${extension}`, import.meta.url))
+}
+
 export async function runWorker(): Promise<void> {
   const connection = await NativeConnection.connect({ address: env.TEMPORAL_ADDRESS })
 
@@ -23,7 +35,13 @@ export async function runWorker(): Promise<void> {
     // A path, not an import: workflow code is bundled into a separate isolate
     // so its determinism can be enforced. Importing it here would pull Node
     // built-ins into that sandbox.
-    workflowsPath: fileURLToPath(new URL('./workflows.js', import.meta.url)),
+    //
+    // The extension is derived from THIS module's own, not hardcoded. Under
+    // `npm run worker` the process runs the TypeScript sources through tsx, so
+    // `workflows.js` does not exist on disk and the bundler's `statSync` fails
+    // with ENOENT before the worker ever polls; after a build it is `.js` and
+    // the `.ts` is what is missing. Hardcoding either one breaks the other.
+    workflowsPath: workflowsEntrypoint(),
     activities,
   })
 

@@ -47,6 +47,22 @@ import {
 } from '../authorization/enforcement/execution-service.js'
 import { enforcementStatus } from '../authorization/enforcement/enforcement-service.js'
 import {
+  decideIncident,
+  getIncident,
+  IncidentError,
+  investigateIncident,
+  listIncidents,
+  openIncident,
+  resolveIncident,
+  signalInvestigationComplete,
+  startIncidentWorkflow,
+} from '../incidents/incident-service.js'
+import {
+  INCIDENT_SEVERITIES,
+  INCIDENT_TYPES,
+  RECOMMENDED_ACTIONS,
+} from '../incidents/incident-types.js'
+import {
   getLatestSnapshot,
   getTrustHistory,
   getTrustSignals,
@@ -566,6 +582,137 @@ v2Router.get(
   }),
 )
 
+// --- Phase 10: incidents (spec sections 23, 24) ----------------------------
+
+const openIncidentSchema = z.object({
+  actorId: z.string().min(1).optional(),
+  clusterId: z.string().min(1).optional(),
+  campaignId: z.string().min(1).optional(),
+  type: z.enum(INCIDENT_TYPES),
+  severity: z.enum(INCIDENT_SEVERITIES),
+  source: z.string().min(1).max(120),
+  detail: z.string().max(2000).optional(),
+  /** Start the durable workflow. Containment happens either way. */
+  startWorkflow: z.boolean().optional(),
+})
+
+const mitigateSchema = z.object({
+  /** ADVISORY (section 15.3) — it can tighten the deterministic decision, never loosen it. */
+  aiRecommendation: z.enum(RECOMMENDED_ACTIONS).optional(),
+})
+
+const resolveSchema = z.object({
+  status: z.enum(['RESOLVED', 'FALSE_POSITIVE']),
+  rootCause: z.string().min(1).max(2000),
+  /** Only legal on FALSE_POSITIVE. */
+  restore: z.boolean().optional(),
+})
+
+v2Router.post(
+  '/v2/incidents',
+  validateBody(openIncidentSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof openIncidentSchema>
+    const incident = await openIncident(body)
+    const workflow = body.startWorkflow ? await startIncidentWorkflow(incident.id) : null
+    res.status(201).json({ incident, workflow })
+  }),
+)
+
+v2Router.get(
+  '/v2/incidents',
+  asyncHandler(async (req, res) => {
+    const status = typeof req.query.status === 'string' ? req.query.status : undefined
+    const actorId = typeof req.query.actorId === 'string' ? req.query.actorId : undefined
+    res.json({ incidents: await listIncidents({ status, actorId }) })
+  }),
+)
+
+v2Router.get(
+  '/v2/incidents/:id',
+  asyncHandler(async (req, res) => {
+    const found = await getIncident(String(req.params.id))
+    if (!found) {
+      res.status(404).json({ error: 'not_found', message: 'No such incident.' })
+      return
+    }
+    res.json(found)
+  }),
+)
+
+/** Runs the deterministic investigation: supporting AND counter-evidence. */
+v2Router.post(
+  '/v2/incidents/:id/investigate',
+  asyncHandler(async (req, res) => {
+    const result = await investigateIncident(String(req.params.id))
+    res.json(result)
+  }),
+)
+
+/**
+ * Applies a mitigation.
+ *
+ * An `aiRecommendation` in the body is advisory: `decideIncident` reconciles it
+ * against the deterministic decision and refuses anything weaker. The response
+ * reports `aiAttemptedToWiden` so an ignored recommendation is visible to the
+ * caller rather than silently dropped.
+ */
+v2Router.post(
+  '/v2/incidents/:id/mitigate',
+  validateBody(mitigateSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof mitigateSchema>
+    const result = await decideIncident({
+      incidentId: String(req.params.id),
+      aiRecommendation: body.aiRecommendation ?? null,
+    })
+    res.json({
+      incident: result.incident,
+      capabilitiesAffected: result.capabilitiesAffected,
+      reconciliation: result.reconciled,
+    })
+  }),
+)
+
+v2Router.post(
+  '/v2/incidents/:id/resolve',
+  validateBody(resolveSchema),
+  asyncHandler(async (req, res) => {
+    const body = req.body as z.infer<typeof resolveSchema>
+    const result = await resolveIncident({ incidentId: String(req.params.id), ...body })
+    res.json(result)
+  }),
+)
+
+/** Delivers an investigator finding to the running incident workflow. */
+v2Router.post(
+  '/v2/incidents/:id/finding',
+  validateBody(
+    z.object({
+      investigationId: z.string().min(1),
+      recommendedAction: z.enum(RECOMMENDED_ACTIONS).nullable().optional(),
+      confidence: z.number().min(0).max(1).nullable().optional(),
+      summary: z.string().max(4000).default(''),
+    }),
+  ),
+  asyncHandler(async (req, res) => {
+    const body = req.body as {
+      investigationId: string
+      recommendedAction?: string | null
+      confidence?: number | null
+      summary: string
+    }
+    const result = await signalInvestigationComplete({
+      incidentId: String(req.params.id),
+      investigationId: body.investigationId,
+      recommendedAction: body.recommendedAction ?? null,
+      confidence: body.confidence ?? null,
+      summary: body.summary,
+    })
+    res.json(result)
+  }),
+)
+
 /**
  * V2's own error middleware, scoped to this router.
  *
@@ -583,7 +730,7 @@ v2Router.use((err: unknown, _req: Request, res: Response, next: NextFunction) =>
     next(err)
     return
   }
-  if (err instanceof ActorError || err instanceof IntentError || err instanceof AgentError || err instanceof LivenessError) {
+  if (err instanceof ActorError || err instanceof IntentError || err instanceof AgentError || err instanceof LivenessError || err instanceof IncidentError) {
     res.status(err.status).json({ error: 'v2_error', message: err.message })
     return
   }

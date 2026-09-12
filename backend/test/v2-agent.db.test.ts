@@ -508,8 +508,17 @@ describe('V2 Phase 5 — lifecycle', () => {
     })
     await auth(request(app).post(`/v2/agents/${agentId}/freeze`)).send({ reason: 'test' })
 
+    // Assert the PRECONDITION before relying on it. `/verify` performs a real
+    // Sepolia transaction to mirror EAC roles, and when that RPC hiccups the
+    // response carries no lease — which used to surface here as a bare
+    // "expected 200 to be 409" from the unfreeze below, pointing at the wrong
+    // thing entirely. Failing here names the actual cause.
+    expect(verified.status, `verify failed: ${JSON.stringify(verified.body)}`).toBe(200)
+    const leaseId = (verified.body as { assurance?: { leaseId?: string } }).assurance?.leaseId
+    expect(leaseId, 'verification returned no assurance lease').toBeTruthy()
+
     await prisma.assuranceLease.update({
-      where: { id: verified.body.assurance.leaseId as string },
+      where: { id: leaseId! },
       data: { expiresAt: new Date(Date.now() - 1000) },
     })
 

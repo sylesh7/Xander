@@ -39,7 +39,8 @@
     "check:agent-ens": "tsx --env-file=.env scripts/check-agent-ens.ts",
     "check:erc8004": "tsx --env-file=.env scripts/check-erc8004.ts",
     "check:enforcement": "tsx --env-file=.env scripts/check-enforcement.ts",
-    "check:x402": "tsx --env-file=.env scripts/check-x402.ts"
+    "check:x402": "tsx --env-file=.env scripts/check-x402.ts",
+    "check:incident": "tsx --env-file=.env scripts/check-incident.ts"
   },
   "prisma": {
     "seed": "tsx --env-file=.env prisma/seed.ts"

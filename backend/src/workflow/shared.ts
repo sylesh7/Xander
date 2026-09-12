@@ -129,6 +129,59 @@ export interface CapabilityLeaseWorkflowOutput {
   history: string[]
 }
 
+// --- Phase 10: incident response (spec section 14.1) ----------------------
+
+/**
+ * What an investigator concluded, delivered to a running incident workflow.
+ *
+ * `recommendedAction` is ADVISORY — section 15.3. The workflow passes it into
+ * `decideIncident`, which reconciles it against the deterministic decision and
+ * refuses to let it loosen anything.
+ */
+export interface InvestigationSignalPayload {
+  investigationId: string
+  recommendedAction: string | null
+  confidence: number | null
+  summary: string
+}
+
+export const investigationCompletedSignal = defineSignal<[InvestigationSignalPayload]>(
+  'investigationCompleted',
+)
+
+export const incidentStateQuery = defineQuery<IncidentWorkflowState>('incidentState')
+
+export interface IncidentWorkflowState {
+  incidentId: string
+  phase: string
+  contained: boolean
+  investigationId: string | null
+  mitigation: string | null
+  history: string[]
+}
+
+export interface IncidentWorkflowInput {
+  incidentId: string
+  actorId: string | null
+  severity: string
+  /** How long to wait for an investigation before deciding without one. */
+  investigationTimeoutSeconds: number
+}
+
+export interface IncidentWorkflowOutput {
+  incidentId: string
+  mitigation: string
+  aiRecommendation: string | null
+  aiAttemptedToWiden: boolean
+  investigationId: string | null
+  timedOut: boolean
+  history: string[]
+}
+
+export function incidentWorkflowId(incidentId: string): string {
+  return `incident-${incidentId}`
+}
+
 /** Deterministic workflow id, so a retried start attaches instead of duplicating. */
 export function authorizationWorkflowId(intentId: string): string {
   return `authz-${intentId}`
