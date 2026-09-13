@@ -11,7 +11,7 @@ Originally built for ETHOnline 2026. V1 targeted two sponsor prizes; V2 added a 
 | Track | Sponsor | Prize | Delivered in |
 |---|---|---|---|
 | Best Use of Composable or Standardized Graph Products | The Graph | $5,000 | V1 |
-| Selfie Check | World | $7,000 pool (up to 3 teams, ~$1,166 each) | V1 |
+| Selfie Check | World | $3,500 pool (up to 3 teams, ~$1,166 each) | V1 |
 | Best Use of ENSv2 | ENS | $4,500 pool (1st $1,500 · 2nd $1,500 · 3rd $1,000 · Runner-up $500) | V2 |
 
 V1 (Phases 1–25) was built jointly by Suganthan and Sylesh for that hackathon. V2 (Phase 0 onward) is a solo continuation by Sylesh, built strictly *on top of* the shared V1 foundation rather than replacing it — the ENSv2 agent-identity work (Phases 3.5 and 5.5) is what makes the ENS track apply.
@@ -243,6 +243,8 @@ World ID Selfie Check (Beta, via `@worldcoin/idkit-core`) is used as the escalat
 - **Fail closed.** A timed-out or invalid World verification never falls through to an approval — it holds the claim, or withholds the assurance lease, exactly like a failed Graph query does.
 
 A real phone running the real World App completed a real Selfie Check that this backend's verification logic accepted, bound to the correct wallet and claim.
+
+Track qualification feedback (docs/integration flow, Developer Portal, sandbox behavior, and every point of real confusion hit while building this) is written up in full at [`WORLD-FEEDBACK.md`](WORLD-FEEDBACK.md).
 
 ## ENS — agent identity is not agent authority
 
