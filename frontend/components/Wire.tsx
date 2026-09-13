@@ -10,41 +10,43 @@ export default function Wire() {
         </span>
 
         <a
-          href="/lab/vacancy"
+          href="https://api.studio.thegraph.com/query/1758823/xander/v0.0.3"
+          target="_blank"
+          rel="noopener"
           className="group font-tele text-[0.76rem] leading-relaxed tracking-[0.05em] text-ink uppercase no-underline"
         >
-          <b className="mr-1.5 font-bold text-acid">THE LAB</b>
+          <b className="mr-1.5 font-bold text-acid">THE GRAPH</b>
           <span className="underline decoration-rule underline-offset-4 transition-colors group-hover:decoration-current">
-            Vacancy — the Three.js roadside sign
+            Live subgraph synced at v0.0.3 on Base Sepolia — query real USDC transfers
           </span>
-          <time dateTime="2026-08-11" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
-            AUG 11
+          <time dateTime="2026-09-12" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
+            SEP 12
           </time>
         </a>
 
         <a
-          href="/notes/long-strange-trip-13-dead-north/"
+          href="#build-status"
           className="group font-tele text-[0.76rem] leading-relaxed tracking-[0.05em] text-ink uppercase no-underline"
         >
-          <b className="mr-1.5 font-bold text-acid">FIELD NOTES</b>
+          <b className="mr-1.5 font-bold text-acid">WORLD ID</b>
           <span className="underline decoration-rule underline-offset-4 transition-colors group-hover:decoration-current">
-            Long Strange Trip XIII: Dead North (2026)
+            A real phone completed a real Selfie Check, verified end to end
           </span>
-          <time dateTime="2026-08-14" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
-            AUG 14
+          <time dateTime="2026-09-09" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
+            SEP 09
           </time>
         </a>
 
         <a
-          href="/tutorials/debug-drupal-commerce-price-and-promotion-problems/"
+          href="#build-status"
           className="group font-tele text-[0.76rem] leading-relaxed tracking-[0.05em] text-ink uppercase no-underline"
         >
-          <b className="mr-1.5 font-bold text-acid">SHOP CLASS</b>
+          <b className="mr-1.5 font-bold text-acid">TEST SUITE</b>
           <span className="underline decoration-rule underline-offset-4 transition-colors group-hover:decoration-current">
-            How to debug Drupal Commerce price and promotion problems
+            330 tests passing, 0 failing — no module mocks anywhere
           </span>
-          <time dateTime="2026-07-30" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
-            JUL 30
+          <time dateTime="2026-09-12" className="ml-1.5 text-[0.64rem] tracking-[0.14em] whitespace-nowrap text-faint">
+            SEP 12
           </time>
         </a>
       </div>

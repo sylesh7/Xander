@@ -75,7 +75,7 @@ export default function DeadNorthTuner() {
       offCtx.textAlign = 'center'
       offCtx.textBaseline = 'middle'
 
-      const lines = W < 620 ? ['DEAD', 'NORTH'] : ['DEAD NORTH']
+      const lines = ['XANDER']
       const fontFamily = getComputedStyle(document.documentElement).getPropertyValue('--font-shout').trim() || 'Anton, Impact, sans-serif'
       let fs = lines.length === 1 ? H * 0.92 : H * 0.52
       offCtx.font = `400 ${fs}px ${fontFamily}`
@@ -228,14 +228,14 @@ export default function DeadNorthTuner() {
     <canvas
       ref={canvasRef}
       data-tuner=""
-      data-lines="DEAD NORTH"
+      data-lines="XANDER"
       className="block w-full cursor-crosshair touch-pan-y"
       style={{ height: '260px' }}
       role="img"
-      aria-label="Interactive halftone rendering of the words DEAD NORTH. Moving the pointer separates the color plates; with keyboard focus, hold Space or Enter to tune the color in."
+      aria-label="Interactive halftone rendering of the word XANDER. Moving the pointer separates the color plates; with keyboard focus, hold Space or Enter to tune the color in."
       tabIndex={0}
     >
-      DEAD NORTH
+      XANDER
     </canvas>
   )
 }

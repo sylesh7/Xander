@@ -10,38 +10,38 @@ export default function Hero() {
       </div>
 
       <h1 className="mt-4 font-tele text-[clamp(0.82rem,1.6vw,1rem)] font-normal tracking-[0.14em] text-ink uppercase">
-        Minneapolis web development — platforms, stores, and apps for organizations that can&apos;t afford downtime.
+        A Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie Check as a selective escalation layer.
       </h1>
       <p className="mt-2 font-tele text-[0.68rem] tracking-[0.16em] text-faint uppercase">
-        Minneapolis — go ahead, drag the sign. Hold it down and watch what happens.
+        Go ahead, drag the sign. Hold it down and watch what happens.
       </p>
 
       <div className="mt-12 grid gap-6 border-t-[3px] border-hard pt-8 md:grid-cols-[1.35fr_1fr] md:gap-16">
         <h2 className="font-shout text-[clamp(2.1rem,5.4vw,3.5rem)] leading-[0.95] tracking-[-0.01em] uppercase">
-          Dead-on work. Due-north advice.
+          Provenance first. Never a guess.
         </h2>
         <div>
           <p className="mb-4 max-w-[var(--measure)]">
-            Dead North is a small senior studio led by{' '}
-            <strong className="font-bold">Dane Petersen</strong> — no junior bench, no handoffs, no account
-            layer: the senior lead who quotes your project is the one who ships it. Minnesota-built, touring
-            everywhere.
+            Xander is a Graph-native risk engine built for{' '}
+            <strong className="font-bold">ETHOnline 2026</strong> — it turns live on-chain
+            evidence into a deterministic, explainable score per wallet or cluster, and escalates
+            to a biometric check only when that score actually earns it.
           </p>
           <p className="max-w-[var(--measure)] text-dim">
-            Building since 2013 — Drupal to .NET, native mobile to cloud — the kind of miles where migrations
-            land every record and checkouts stop dropping orders because we&apos;ve already seen every way they
-            can. The launch is just the first set. The run is the show.
+            Every fact behind a score — a transfer, a deposit, a borrow — is pulled live from The
+            Graph and stored with its source, its deployment, and its block number attached.
+            Nothing is inferred or fabricated.
           </p>
         </div>
       </div>
 
       <a
-        href="/bands"
+        href="#try-it"
         className="dn-split mt-8 flex w-fit items-center gap-4 border-[3px] border-signal bg-paper-2 px-5 py-4 text-ink no-underline"
       >
-        <span className="font-tele text-[0.66rem] font-bold tracking-[0.18em] text-signal uppercase">Small bands</span>
+        <span className="font-tele text-[0.66rem] font-bold tracking-[0.18em] text-signal uppercase">Live proof</span>
         <span className="font-shout text-[clamp(1.2rem,2.8vw,1.7rem)] leading-none uppercase">
-          A proper site for $1,500 →
+          Query the real subgraph →
         </span>
       </a>
     </>

@@ -1,80 +1,83 @@
 export default function SmallBands() {
   return (
     <section
-      id="small-bands"
+      id="the-problem"
       className="border-t-[3px] border-signal bg-hard px-[var(--gutter)] py-[clamp(3.4rem,8vw,6.5rem)] text-paper"
     >
       <div className="mx-auto max-w-[1140px]">
         <div className="dn-rail mb-6 text-paper">
           <b className="font-bold text-paper">CH 01</b>
-          <span>Dead North gives back</span>
+          <span>The problem</span>
           <span className="bar" />
-          <span>for independent small bands</span>
+          <span>four airdrops, one repeated failure</span>
         </div>
 
         <div className="grid items-end gap-8 lg:grid-cols-[1.25fr_.75fr] lg:gap-14">
           <div>
             <p className="mb-4 font-tele text-[0.7rem] font-bold tracking-[0.2em] text-paper uppercase">
-              Not a limited promotion. A standing program.
+              Not a hypothetical. A repeated, documented failure.
             </p>
             <h2 className="mb-5 max-w-[14ch] font-shout text-[clamp(2.7rem,7vw,5.2rem)] leading-[0.88] tracking-[-0.02em] uppercase">
-              Small band. Proper stage.
+              Flagged. Not explained.
             </h2>
             <p className="max-w-[60ch] text-[1.05rem] leading-[1.7] text-paper/80">
-              Independent small bands should not have to choose between a generic link page and a five-figure
-              agency site. Dead North builds a fast, distinctive home for your music, shows, and story — because
-              the local music ecosystem is worth showing up for.
+              LayerZero flagged over 800,000 sybil addresses. Linea&apos;s sweep initially caught
+              over half its eligible wallets before walking most of that back. Arbitrum&apos;s
+              shared-funding heuristic restricted real users who happened to withdraw from the
+              same exchange. None of it came with a reason a flagged wallet — or an outside
+              reviewer — could actually inspect.
             </p>
           </div>
 
           <div className="border-[3px] border-signal bg-paper p-6 text-ink shadow-[8px_8px_0_var(--color-signal)]">
             <p className="m-0 font-tele text-[0.66rem] font-bold tracking-[0.18em] text-signal uppercase">
-              The give-back price
+              The fix
             </p>
             <p className="mt-3 mb-1 font-shout text-[clamp(3.4rem,8vw,5.6rem)] leading-none tabular-nums">
-              $1,500
+              0.85
             </p>
             <p className="m-0 font-tele text-[0.68rem] tracking-[0.12em] text-dim uppercase">
-              75% below the $6,000 standard scope
+              the ceiling this model will ever return — never sold as a normalized 1.0
             </p>
             <p className="mt-5 mb-0 text-[0.95rem] leading-[1.6] text-dim">
-              Four pages — home, shows, music, press — plus launch help and a free Still On Tour band-portal
-              setup session.
+              A known-funder registry — 10 labeled bridge contracts, 100 exchange hot wallets —
+              is checked before a shared funding source ever counts against a wallet. Labelled
+              and unlabelled funders are scored separately, and the higher wins.
             </p>
             <a
-              href="/bands"
+              href="#evidence"
               className="dn-split mt-6 inline-block border border-hard bg-hard px-5 py-3 font-tele text-[0.72rem] font-bold tracking-[0.16em] text-paper uppercase no-underline"
             >
-              See the small-band program →
+              See the risk model →
             </a>
           </div>
         </div>
 
         <div className="mt-10 border-y border-[#3a3530] py-5">
           <p className="mb-5 font-tele text-[0.66rem] font-bold tracking-[0.2em] text-paper uppercase">
-            A site with a job to do
+            Four campaigns, the same failure
           </p>
           <div className="grid border-l border-[#3a3530] sm:grid-cols-2 lg:grid-cols-4">
             {[
               {
-                num: '01 / Home',
-                title: 'Make the case.',
-                body: 'What the band sounds like, looks like, and why someone should stay.',
+                num: '01 / LayerZero',
+                title: '800,000 flagged.',
+                body: 'May 2024 — out of a 1.28M-wallet eligible pool, with a CEO-acknowledged amnesty program on top.',
               },
               {
-                num: '02 / Shows',
-                title: 'Fill the room.',
-                body: 'A clean, current place to find the next date and get out the door.',
+                num: '02 / Linea',
+                title: '137,000-wallet gap.',
+                body: '50.45% initially flagged, walked back to 39.85% — the cost of a detector nobody could ask "why me?"',
               },
               {
-                num: '03 / Music',
-                title: 'Press play.',
-                body: 'Your releases, embeds, and links without a platform swallowing the story.',
+                num: '03 / Arbitrum',
+                title: 'Real users caught.',
+                body: 'Shared-funding clustering, no exchange or bridge exclusion list — the exact signal this registry now guards.',
               },
               {
-                num: '04 / Press',
-                title: 'Get booked.',
-                body: 'Bio, photo, links, and practical details for the people putting bills together.',
+                num: '04 / LayerZero bounty',
+                title: 'Thousands, forgiven.',
+                body: 'A bounty for human-reported sybils produced false positives that had to be reversed after the fact.',
               },
             ].map((col) => (
               <div key={col.num} className="border-r border-[#3a3530] px-4 py-4">

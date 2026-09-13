@@ -2,9 +2,9 @@ import type { Metadata } from 'next'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'Minneapolis Web & Drupal Studio — Builds, Rescue, Maintenance',
+  title: 'Xander — Graph-Native Risk Engine + World ID Escalation',
   description:
-    'Senior Minneapolis web studio: Drupal-deep, WordPress-fluent, mobile and .NET capable. A $950 site health check to start, maintenance from $150/mo, and honest advice first — even when it\'s "don\'t hire us."',
+    'A Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie Check as a selective escalation layer. Deterministic scoring, provenance-backed evidence, built for ETHOnline 2026.',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

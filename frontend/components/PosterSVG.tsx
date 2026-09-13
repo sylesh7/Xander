@@ -4,7 +4,7 @@ export default function PosterSVG() {
       className="poster"
       viewBox="0 0 840 500"
       role="img"
-      aria-label="A film-noir postcard: a couple at a lakeshore — a woman in a red dress with a cigarette, a man in a suit and fedora — silhouetted against the Minneapolis and Saint Paul skylines across the water, under a full moon. The words DEAD NORTH run beneath."
+      aria-label="A film-noir postcard: a couple at a lakeshore — a woman in a red dress with a cigarette, a man in a suit and fedora — silhouetted against a skyline across the water, under a full moon. The word XANDER runs beneath."
     >
       {/* moon */}
       <circle className="moon" cx="120" cy="100" r="58" />
@@ -27,7 +27,7 @@ export default function PosterSVG() {
       <ellipse className="glow" cx="290" cy="320" rx="220" ry="70" />
       <ellipse className="glow" cx="680" cy="320" rx="150" ry="60" />
 
-      {/* Minneapolis skyline */}
+      {/* left skyline */}
       <g className="skyline">
         <polygon points="162,330 170,208 192,208 200,330" />
         <rect x="174" y="192" width="14" height="18" />
@@ -39,7 +39,7 @@ export default function PosterSVG() {
         <rect x="430" y="292" width="22" height="38" />
       </g>
 
-      {/* Saint Paul skyline */}
+      {/* right skyline */}
       <g className="skyline">
         <rect x="596" y="288" width="34" height="42" />
         <rect x="638" y="268" width="58" height="62" />
@@ -134,9 +134,9 @@ export default function PosterSVG() {
         />
       </g>
 
-      <text className="title" x="210" y="462" textAnchor="middle">DEAD NORTH</text>
+      <text className="title" x="210" y="462" textAnchor="middle">XANDER</text>
       <text className="credits" x="210" y="480" textAnchor="middle">
-        A TWIN CITIES TRANSMISSION · CH 00 · IN NOIR-O-VISION
+        A GRAPH-NATIVE TRANSMISSION · CH 00 · IN NOIR-O-VISION
       </text>
     </svg>
   )

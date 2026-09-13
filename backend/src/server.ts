@@ -11,6 +11,7 @@
  * needs a credential is a check that silently stops working when the credential
  * rotates.
  */
+import cors from 'cors'
 import express from 'express'
 import { pathToFileURL } from 'node:url'
 import { env } from './config/env.js'
@@ -26,6 +27,27 @@ import { checkReadiness } from './hardening/readiness.js'
 import { startTelemetry, stopTelemetry } from './hardening/telemetry.js'
 
 export const app = express()
+
+/**
+ * CORS — every surface in this file is called directly from browser JS
+ * (the console, the authority mobile UI, x402's client-side EIP-712 signing),
+ * and none of them share an origin with this API in dev. Without this, every
+ * fetch fails at the browser's CORS check before the request even reaches
+ * `apiKeyAuth` — it looks identical to the backend being down.
+ *
+ * Reflects the requesting origin rather than a fixed list: this is a
+ * hackathon dev backend gated by BACKEND_API_KEY / operator auth / the x402
+ * payment itself, not by origin, so there is no meaningful origin allowlist
+ * to maintain here.
+ */
+app.use(
+  cors({
+    origin: true,
+    credentials: false,
+    allowedHeaders: ['Content-Type', 'X-API-Key', 'Authorization', 'X-Device-Id', 'X-Wallet', 'PAYMENT-SIGNATURE'],
+    exposedHeaders: ['PAYMENT-REQUIRED', 'PAYMENT-RESPONSE'],
+  }),
+)
 
 app.use(express.json())
 

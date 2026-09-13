@@ -1,0 +1,67 @@
+/**
+ * A real, live Tailwind v4 entry point — scoped to `/authority` only.
+ *
+ * `app/globals.css` is a frozen, pre-compiled Tailwind output the landing
+ * page ships (no `@import "tailwindcss"` in it, so nothing regenerates it
+ * from the components that use it). Any utility class not already baked into
+ * that file — anything with an arbitrary value, `h-14`, `gap-1.5`, whatever —
+ * silently does nothing. The authority plane needs a real pipeline that scans
+ * its own components, same as `/console`'s copy of this file, without
+ * touching the landing page's.
+ *
+ * Token values below are copied verbatim from the light/dark blocks already
+ * compiled into `app/globals.css`, so `bg-paper`, `text-signal`, `font-tele`
+ * etc. resolve to the exact same colours either file is loaded from.
+ */
+@import 'tailwindcss';
+
+@theme {
+  --color-paper: #ece4d0;
+  --color-paper-2: #e2d9c2;
+  --color-ink: #171310;
+  --color-dim: #56514a;
+  --color-faint: #5d5a4f;
+  --color-field: #837a61;
+  --color-rule: #c6bda4;
+  --color-hard: #171310;
+  --color-signal: #b32408;
+  --color-bolt: #0e3fbf;
+  --color-acid: #4d6300;
+  --color-amber: #b06414;
+
+  --font-shout: 'Anton', Impact, Haettenschweiler, 'Franklin Gothic Bold', 'Arial Narrow', sans-serif;
+  --font-noir: 'Bodoni Moda', 'Bodoni 72', Didot, 'Didot LT STD', Georgia, serif;
+  --font-tele: 'Courier Prime', 'Courier New', Courier, monospace;
+  --font-body: 'Avenir Next', Futura, 'Century Gothic', 'Segoe UI', system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    --color-paper: #0d0b08;
+    --color-paper-2: #14110d;
+    --color-ink: #ece4d0;
+    --color-dim: #c9c2b4;
+    --color-faint: #aaa7b3;
+    --color-rule: #2a2620;
+    --color-field: #64605a;
+    --color-hard: #ece4d0;
+    --color-signal: #ff3b12;
+    --color-bolt: #4e8dff;
+    --color-acid: #c6ff3d;
+    --color-amber: #ffb347;
+  }
+}
+
+:root[data-theme='dark'] {
+  --color-paper: #0d0b08;
+  --color-paper-2: #14110d;
+  --color-ink: #ece4d0;
+  --color-dim: #c9c2b4;
+  --color-faint: #aaa7b3;
+  --color-rule: #2a2620;
+  --color-hard: #ece4d0;
+  --color-signal: #ff3b12;
+  --color-bolt: #4e8dff;
+  --color-acid: #c6ff3d;
+  --color-amber: #ffb347;
+}

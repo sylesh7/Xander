@@ -1,28 +1,21 @@
-import Image from 'next/image'
 import Logo from './Logo'
 import NorthwaterSVG from './NorthwaterSVG'
 
 const footerLinks = [
-  { href: '/services', label: 'Prices & plans' },
-  { href: '/maintenance', label: 'Maintenance' },
-  { href: '/diagnostics', label: 'Diagnostics' },
-  { href: '/build', label: 'Build' },
-  { href: '/ai', label: 'AI & data' },
-  { href: '/analytics', label: 'Power BI' },
-  { href: '/rescue', label: 'Rescue' },
-  { href: '/drupal-upgrade', label: 'Drupal upgrades' },
-  { href: '/drupal-7-census', label: 'Drupal 7 census' },
-  { href: '/fractional', label: 'Fractional lead' },
-  { href: '/agencies', label: 'For agencies' },
-  { href: '/work', label: 'Work' },
-  { href: '/fargo', label: 'Fargo' },
-  { href: '/about', label: 'About' },
-  { href: '/contact', label: 'Contact' },
-  { href: '/lab', label: 'Test patterns' },
-  { href: '/notes/', label: 'Field notes' },
-  { href: '/tutorials/', label: 'Shop class' },
-  { href: '/accessibility', label: 'Accessibility' },
-  { href: 'mailto:hello@deadnorth.io', label: 'hello@deadnorth.io', noUppercase: true },
+  { href: '#the-problem', label: 'The problem' },
+  { href: '#evidence', label: 'Evidence layer' },
+  { href: '#fail-closed', label: 'Fail-closed design' },
+  { href: '#build-status', label: 'Build status' },
+  { href: '#team', label: 'Team' },
+  { href: '#docs', label: 'Docs' },
+  { href: '#try-it', label: 'Try it live' },
+  { href: '#ethonline', label: 'ETHOnline 2026' },
+  { href: '#contact', label: 'Contact' },
+  { href: 'https://api.studio.thegraph.com/query/1758823/xander/v0.0.3', label: 'GraphiQL' },
+  { href: 'https://thegraph.com/studio/subgraph/xander', label: 'Subgraph Studio' },
+  { href: 'https://github.com/sylesh7/Xander/blob/main/Backend-Suganthan.md', label: 'Evidence & Risk spec' },
+  { href: 'https://github.com/sylesh7/Xander/blob/main/Backend-Sylesh.md', label: 'Decision & API spec' },
+  { href: 'https://github.com/sylesh7/Xander', label: 'github.com/sylesh7/Xander', noUppercase: true },
 ]
 
 export default function Footer() {
@@ -34,10 +27,10 @@ export default function Footer() {
         <p className="mb-4 max-w-[70ch]">
           <strong className="font-shout text-[1.15rem] tracking-[0.02em] text-ink">
             <Logo id="dn-mk-ft" />
-            DEAD NORTH
+            XANDER
           </strong>{' '}
-          — dead-on and due north, the Dead and the North, and a band if you need one. All three readings are
-          correct.
+          — a Graph-native, cross-protocol coordinated-actor risk engine, with World Selfie
+          Check as a selective escalation layer. Built for ETHOnline 2026.
         </p>
 
         <nav className="mb-8 flex flex-wrap gap-x-6 gap-y-2">
@@ -55,35 +48,22 @@ export default function Footer() {
         <div className="mb-5 flex flex-wrap items-center gap-x-6 gap-y-3">
           <p className="m-0">
             <a
-              href="https://www.websitecarbon.com/website/deadnorth-io/"
+              href="https://github.com/sylesh7/Xander"
+              target="_blank"
               rel="noopener"
               className="dn-split inline-flex min-h-6 items-center gap-1.5 text-dim no-underline"
             >
               <span aria-hidden="true" className="inline-block h-2 w-2 rounded-full bg-acid" />
-              Website carbon A+ · 0.03g CO2 per visit · cleaner than 94% of pages tested (Aug 2026) — re-test
-              live
+              Test suite: 330 passing · 5 skipped without live credentials · 0 failing (2026-09-12)
             </a>
           </p>
-          <a
-            href="https://www.thegreenwebfoundation.org/green-web-check/?url=deadnorth.io"
-            rel="noopener"
-            className="dn-split inline-block no-underline"
-          >
-            <Image
-              src="/assets/greenweb.png"
-              alt="This website runs on green hosting - verified by thegreenwebfoundation.org"
-              width={200}
-              height={95}
-              loading="lazy"
-            />
-          </a>
         </div>
 
         <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-6 border-t border-rule pt-6">
           <p className="m-0">
-            © 2026 Dead North LLC · Minneapolis, Minnesota ·{' '}
-            <a href="/llms.txt" className="dn-split text-ink">
-              Prices, machine-readable
+            © 2026 Xander · ETHOnline 2026 submission ·{' '}
+            <a href="https://github.com/sylesh7/Xander" target="_blank" rel="noopener" className="dn-split text-ink">
+              Full source →
             </a>
           </p>
 
@@ -93,19 +73,6 @@ export default function Footer() {
               <FooterButton label="Motion" stateLabel="on" />
               <FooterButton label="Air" stateLabel="on" />
             </div>
-
-            <a href="/tune-in" className="dn-split no-underline" aria-label="Tune-in page — the QR landing">
-              <Image
-                src="/assets/tune-in.svg"
-                alt=""
-                width={64}
-                height={64}
-                className="block border border-rule"
-              />
-              <span className="mt-1 block text-center font-tele text-[0.5rem] tracking-[0.22em] text-faint uppercase">
-                Tune in
-              </span>
-            </a>
           </div>
         </div>
       </div>
