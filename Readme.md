@@ -39,7 +39,6 @@ V1 (Phases 1–25) was built jointly by Suganthan and Sylesh for that hackathon.
 - [Repository layout](#repository-layout)
 - [Build status](#build-status)
 - [Running it locally](#running-it-locally)
-- [Team](#team)
 
 ---
 
@@ -434,10 +433,3 @@ npm run dev                # http://localhost:3000 (Next.js dev port, separate f
 
 The console (`/console/*`) uses the same `X-API-Key` as the backend's V1 + V2 surfaces; the mobile Remote Authority app (`/authority/*`) authenticates separately via `Authorization: Bearer` + `X-Device-Id` and never sends the API key.
 
-## Team
-
-| Track | Owner |
-|---|---|
-| V1 — Evidence & Risk Engine (Phases 1–12) | Suganthan |
-| V1 — Decision, Escalation & API + World ID (Phases 13–25) | Sylesh |
-| V2 — Agent Trust & Authorization Runtime (Phases 0–12) | Sylesh, solo |
