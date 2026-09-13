@@ -1,5 +1,3 @@
-# Xander
-
 ![Xander banner](frontend/public/assets/Xander_Banner.png)
 
 **A Graph-native risk engine that grew into a full trust-and-authorization runtime for wallets and AI agents.**
